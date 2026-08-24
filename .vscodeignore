@@ -1,6 +1,10 @@
+.git/
+.github/
+.gitignore
 .vscode/
+.vscodeignore
 src/
-node_modules/
 esbuild.mjs
 tsconfig.json
+package-lock.json
 **/*.map
