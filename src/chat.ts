@@ -100,7 +100,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { cfg, maxSteps } = settings();
+    const { cfg } = settings();
     const controller = new AbortController();
     this.active = controller;
 
@@ -112,7 +112,6 @@ export class ChatView implements vscode.WebviewViewProvider {
       const deps = {
         cfg,
         root,
-        maxSteps,
         signal: controller.signal,
         onWait: (seconds: number) =>
           post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
@@ -217,8 +216,6 @@ function project(event: AgentEvent): ToView {
       return { type: 'tool', id: event.call.id, name: event.call.name, args: event.call.args };
     case 'result':
       return { type: 'result', id: event.id, output: event.output, failed: event.failed };
-    case 'limit':
-      return { type: 'status', text: 'Stopped at the step limit.' };
   }
 }
 
@@ -228,7 +225,6 @@ function settings(): {
   endpoints: Endpoint[];
   active: ModelRef;
   cfg: LlmConfig;
-  maxSteps: number;
 } {
   const c = vscode.workspace.getConfiguration('daisy');
   const endpoints = c.get<Endpoint[]>('endpoints', []);
@@ -242,6 +238,5 @@ function settings(): {
     endpoints: usable,
     active: { endpoint: chosen.name, model },
     cfg: { baseUrl: chosen.baseUrl, model, apiKey: chosen.apiKey ?? '' },
-    maxSteps: c.get<number>('maxSteps', 12),
   };
 }

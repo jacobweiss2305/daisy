@@ -79,12 +79,6 @@
           "type": "string",
           "default": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
           "description": "Model identifier passed to the endpoint."
-        },
-        "daisy.maxSteps": {
-          "type": "integer",
-          "default": 12,
-          "minimum": 1,
-          "description": "Maximum tool round trips per message."
         }
       }
     }

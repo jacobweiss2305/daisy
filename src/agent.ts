@@ -5,20 +5,19 @@ export type AgentEvent =
   | { kind: 'text'; text: string }
   | { kind: 'think'; text: string }
   | { kind: 'tool'; call: ToolCall }
-  | { kind: 'result'; id: string; output: string; failed: boolean }
-  | { kind: 'limit' };
+  | { kind: 'result'; id: string; output: string; failed: boolean };
 
 export interface AgentDeps {
   cfg: LlmConfig;
   root: string;
-  maxSteps: number;
   signal: AbortSignal;
   onWait?: (seconds: number) => void;
 }
 
-/** Streams one turn to completion, appending every exchange to `messages`. */
+/** Streams one turn to completion, appending every exchange to `messages`.
+ *  Runs until the model stops calling tools; cancel with the abort signal. */
 export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator<AgentEvent> {
-  for (let step = 0; step < deps.maxSteps; step++) {
+  for (;;) {
     let text = '';
     let calls: ToolCall[] = [];
 
@@ -48,8 +47,6 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
       yield { kind: 'result', id: call.id, output, failed };
     }
   }
-
-  yield { kind: 'limit' };
 }
 
 /** Every failure returns as a tool result so the model can correct instead of the turn dying. */

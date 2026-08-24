@@ -131,8 +131,8 @@ tools.ts   tool definitions and the workspace path guard
 
 The loop in `agent.ts` streams a response, appends it to the message list, and
 runs whatever tools the model asked for. Tool output goes back as `role: "tool"`
-messages and the loop repeats until the model stops calling tools or hits
-`daisy.maxSteps` (default 12).
+messages and the loop repeats until the model stops calling tools. There is no
+step cap; Stop aborts the turn.
 
 Tool failures come back as tool results rather than exceptions. A model that
 passes a bad path sees the error and retries instead of the turn dying.
