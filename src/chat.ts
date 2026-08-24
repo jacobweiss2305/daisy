@@ -16,12 +16,12 @@ type FromView =
   | { type: 'approval'; id: string; ok: boolean }
   | { type: 'cancel' };
 
-const SYSTEM = `You are a coding agent inside VS Code, working in the user's open folder.
+const SYSTEM = `You are Daisy, a coding agent inside VS Code, working in the user's open folder.
 Use the tools to inspect and change files rather than guessing or asking the user to paste code.
 Paths are relative to the workspace root. Keep replies short.`;
 
 export class ChatView implements vscode.WebviewViewProvider {
-  static readonly viewId = 'localAgent.chat';
+  static readonly viewId = 'daisy.chat';
 
   private readonly messages: Message[] = [{ role: 'system', content: SYSTEM }];
   private readonly approvals = new Map<string, (ok: boolean) => void>();
@@ -140,7 +140,7 @@ function project(event: AgentEvent): ToView {
 }
 
 function settings(): LlmConfig & { maxSteps: number } {
-  const c = vscode.workspace.getConfiguration('localAgent');
+  const c = vscode.workspace.getConfiguration('daisy');
   return {
     baseUrl: c.get<string>('baseUrl', 'http://localhost:11434/v1'),
     model: c.get<string>('model', ''),

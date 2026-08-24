@@ -1,13 +1,13 @@
 {
-  "name": "vscode-local-agent",
-  "displayName": "Local Agent",
-  "description": "Chat sidebar backed by any OpenAI-compatible model, with workspace file and shell tools.",
+  "name": "daisy",
+  "displayName": "Daisy",
+  "description": "A coding agent that fetches. Runs on a local model, reads and writes your workspace, and runs commands.",
   "version": "0.1.0",
   "license": "MIT",
   "publisher": "jacobweiss2305",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jacobweiss2305/vscode-local-agent.git"
+    "url": "https://github.com/jacobweiss2305/daisy.git"
   },
   "engines": {
     "vscode": "^1.106.0"
@@ -20,40 +20,40 @@
     "viewsContainers": {
       "secondarySidebar": [
         {
-          "id": "localAgent",
-          "title": "Local Agent",
+          "id": "daisy",
+          "title": "Daisy",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "localAgent": [
+      "daisy": [
         {
-          "id": "localAgent.chat",
+          "id": "daisy.chat",
           "name": "Chat",
           "type": "webview"
         }
       ]
     },
     "configuration": {
-      "title": "Local Agent",
+      "title": "Daisy",
       "properties": {
-        "localAgent.baseUrl": {
+        "daisy.baseUrl": {
           "type": "string",
           "default": "http://localhost:11434/v1",
           "markdownDescription": "OpenAI-compatible base URL. Ollama, llama.cpp, LM Studio, vLLM, and hosted providers all work."
         },
-        "localAgent.model": {
+        "daisy.model": {
           "type": "string",
           "default": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
           "description": "Model identifier passed to the endpoint."
         },
-        "localAgent.apiKey": {
+        "daisy.apiKey": {
           "type": "string",
           "default": "",
           "description": "Bearer token. Leave empty for local servers."
         },
-        "localAgent.maxSteps": {
+        "daisy.maxSteps": {
           "type": "integer",
           "default": 12,
           "minimum": 1,
@@ -74,5 +74,6 @@
     "@types/vscode": "^1.106.0",
     "esbuild": "^0.24.2",
     "typescript": "^5.7.2"
-  }
+  },
+  "icon": "media/daisy.png"
 }
