@@ -10,7 +10,7 @@
     "url": "https://github.com/jacobweiss2305/vscode-local-agent.git"
   },
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "AI"
@@ -18,7 +18,7 @@
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "localAgent",
           "title": "Local Agent",
@@ -71,7 +71,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/vscode": "^1.95.0",
+    "@types/vscode": "^1.106.0",
     "esbuild": "^0.24.2",
     "typescript": "^5.7.2"
   }

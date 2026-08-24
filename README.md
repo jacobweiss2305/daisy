@@ -16,8 +16,11 @@ npm run build
 ```
 
 Open the folder in VS Code and press F5. A second window opens with the extension
-loaded. The agent icon appears in the activity bar; drag the view to the right if
-you want it there.
+loaded. Local Agent appears in the Secondary Side Bar on the right; open it with
+`Ctrl+Alt+B` if that bar is hidden.
+
+Requires VS Code 1.106 or newer, which is where extensions gained the ability to
+put a view in the Secondary Side Bar.
 
 ## Point it at a model
 
