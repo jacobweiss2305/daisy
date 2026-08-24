@@ -17,6 +17,7 @@ type FromView =
   | { type: 'approval'; id: string; ok: boolean }
   | { type: 'model'; name: string }
   | { type: 'refresh' }
+  | { type: 'ready' }
   | { type: 'cancel' };
 
 const SYSTEM = `You are Daisy, a coding agent inside VS Code, working in the user's open folder.
@@ -36,7 +37,6 @@ export class ChatView implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true, localResourceRoots: [this.ext] };
     view.webview.html = this.html(view.webview);
     view.webview.onDidReceiveMessage((m: FromView) => this.receive(m, view.webview));
-    void this.sendModels(view.webview);
   }
 
   private receive(message: FromView, webview: vscode.Webview): void {
@@ -53,6 +53,7 @@ export class ChatView implements vscode.WebviewViewProvider {
           .getConfiguration('daisy')
           .update('model', message.name, vscode.ConfigurationTarget.Global);
         break;
+      case 'ready':
       case 'refresh':
         void this.sendModels(webview);
         break;

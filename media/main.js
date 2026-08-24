@@ -176,3 +176,5 @@ function oneLine(args) {
   const flat = args.replace(/\s+/g, ' ').trim();
   return flat.length > 60 ? `${flat.slice(0, 60)}...` : flat;
 }
+
+vscode.postMessage({ type: 'ready' });
