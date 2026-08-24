@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import { run, type AgentEvent } from './agent.ts';
-import { listModels, type LlmConfig, type ToolCall } from './llm.ts';
+import { listAll, type Endpoint, type LlmConfig, type ModelRef, type ToolCall } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { expandMentions } from './tools.ts';
 
@@ -12,7 +12,7 @@ type ToView =
   | { type: 'result'; id: string; output: string; failed: boolean }
   | { type: 'approve'; id: string; name: string; args: string }
   | { type: 'status'; text: string }
-  | { type: 'models'; items: string[]; selected: string }
+  | { type: 'models'; items: ModelRef[]; selected: ModelRef }
   | { type: 'sessions'; items: { id: string; title: string }[]; active: string }
   | { type: 'history'; items: { role: 'user' | 'assistant'; text: string }[] }
   | { type: 'files'; items: string[] }
@@ -21,7 +21,7 @@ type ToView =
 type FromView =
   | { type: 'send'; text: string }
   | { type: 'approval'; id: string; ok: boolean }
-  | { type: 'model'; name: string }
+  | { type: 'model'; ref: ModelRef }
   | { type: 'session'; id: string }
   | { type: 'new' }
   | { type: 'refresh' }
@@ -82,11 +82,12 @@ export class ChatView implements vscode.WebviewViewProvider {
         this.sendSessions(webview);
         this.sendHistory(webview);
         break;
-      case 'model':
-        void vscode.workspace
-          .getConfiguration('daisy')
-          .update('model', message.name, vscode.ConfigurationTarget.Global);
+      case 'model': {
+        const config = vscode.workspace.getConfiguration('daisy');
+        void config.update('endpoint', message.ref.endpoint, vscode.ConfigurationTarget.Global);
+        void config.update('model', message.ref.model, vscode.ConfigurationTarget.Global);
         break;
+      }
       case 'refresh':
         void this.sendModels(webview);
         break;
@@ -166,19 +167,17 @@ export class ChatView implements vscode.WebviewViewProvider {
   }
 
   private async sendModels(webview: vscode.Webview): Promise<void> {
-    const { cfg } = settings();
-    let items: string[] = [];
+    const { endpoints, active } = settings();
+    const items = await listAll(endpoints);
 
-    try {
-      items = await listModels(cfg);
-    } catch (e) {
+    if (!items.length) {
       void webview.postMessage({
         type: 'status',
-        text: `Cannot reach ${cfg.baseUrl}: ${(e as Error).message}`,
+        text: `No models from ${endpoints.map((e) => e.name).join(', ') || 'any endpoint'}.`,
       } satisfies ToView);
     }
 
-    void webview.postMessage({ type: 'models', items, selected: cfg.model } satisfies ToView);
+    void webview.postMessage({ type: 'models', items, selected: active } satisfies ToView);
   }
 
   private ask(call: ToolCall, webview: vscode.Webview): Promise<boolean> {
@@ -248,14 +247,26 @@ function project(event: AgentEvent): ToView {
   }
 }
 
-function settings(): { cfg: LlmConfig; maxSteps: number } {
+const FALLBACK: Endpoint = { name: 'ollama', baseUrl: 'http://localhost:11434/v1', apiKey: '' };
+
+function settings(): {
+  endpoints: Endpoint[];
+  active: ModelRef;
+  cfg: LlmConfig;
+  maxSteps: number;
+} {
   const c = vscode.workspace.getConfiguration('daisy');
+  const endpoints = c.get<Endpoint[]>('endpoints', []);
+  const usable = endpoints.length ? endpoints : [FALLBACK];
+
+  const wanted = c.get<string>('endpoint', '');
+  const chosen = usable.find((e) => e.name === wanted) ?? usable[0] ?? FALLBACK;
+  const model = c.get<string>('model', '');
+
   return {
-    cfg: {
-      baseUrl: c.get<string>('baseUrl', 'http://localhost:11434/v1'),
-      model: c.get<string>('model', ''),
-      apiKey: c.get<string>('apiKey', ''),
-    },
+    endpoints: usable,
+    active: { endpoint: chosen.name, model },
+    cfg: { baseUrl: chosen.baseUrl, model, apiKey: chosen.apiKey ?? '' },
     maxSteps: c.get<number>('maxSteps', 12),
   };
 }

@@ -11,6 +11,7 @@ const startNew = document.getElementById('new');
 const mentions = document.getElementById('mentions');
 
 const cards = new Map();
+let modelRefs = [];
 let files = [];
 let matches = [];
 let highlighted = 0;
@@ -20,7 +21,10 @@ let busy = false;
 
 refresh.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 startNew.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
-model.addEventListener('change', () => vscode.postMessage({ type: 'model', name: model.value }));
+model.addEventListener('change', () => {
+  const ref = modelRefs[Number(model.value)];
+  if (ref) vscode.postMessage({ type: 'model', ref });
+});
 session.addEventListener('change', () => vscode.postMessage({ type: 'session', id: session.value }));
 
 form.addEventListener('submit', (event) => {
@@ -108,7 +112,8 @@ window.addEventListener('message', ({ data }) => {
       break;
 
     case 'models':
-      fill(model, options(data.items, data.selected), data.selected, 'no models found');
+      modelRefs = data.items;
+      fillModels(data.items, data.selected);
       break;
 
     case 'sessions':
@@ -197,9 +202,19 @@ function accept(path) {
   prompt.focus();
 }
 
-function options(items, selected) {
-  const all = !selected || items.includes(selected) ? items : [selected, ...items];
-  return all.map((name) => ({ value: name, label: name }));
+function fillModels(items, selected) {
+  const known = items.some((r) => r.endpoint === selected.endpoint && r.model === selected.model);
+  const refs = known || !selected.model ? items : [selected, ...items];
+  modelRefs = refs;
+
+  const spread = new Set(refs.map((r) => r.endpoint)).size > 1;
+  const entries = refs.map((r, i) => ({
+    value: String(i),
+    label: spread ? `${r.model} · ${r.endpoint}` : r.model,
+  }));
+
+  const at = refs.findIndex((r) => r.endpoint === selected.endpoint && r.model === selected.model);
+  fill(model, entries, String(at), 'no models found');
 }
 
 function fill(select, entries, selected, empty) {

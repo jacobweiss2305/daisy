@@ -37,26 +37,45 @@ Defaults assume Ollama on `localhost:11434`:
 ollama pull hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL
 ```
 
-Pick the model from the dropdown at the top of the panel. It lists whatever the
-endpoint reports, and the choice writes straight to `daisy.model`, so the panel
-and the settings UI never disagree. Reload re-reads the list after you pull a new
-model.
+Daisy talks to several servers at once. `daisy.endpoints` is a list, and the
+dropdown shows every model from every reachable one, labelled by endpoint when
+more than one answers. Picking one writes both `daisy.endpoint` and `daisy.model`,
+so switching between a local model and a hosted one is a single click.
+
+```json
+"daisy.endpoints": [
+  { "name": "ollama", "baseUrl": "http://localhost:11434/v1", "apiKey": "" },
+  { "name": "modal",  "baseUrl": "https://…modal.direct/v1", "apiKey": "wk-….ws-…" }
+]
+```
+
+An endpoint that does not answer is skipped rather than failing the list, so a
+stopped local server does not hide your hosted models. Reload re-reads them all.
 
 Model discovery tries `GET /v1/models` first and falls back to Ollama's
 `/api/tags`, because Ollama returns `{"data": null}` from the OpenAI endpoint
 while it is still indexing.
 
 Any server speaking `POST /v1/chat/completions` with streaming and tool calls
-works. `daisy.baseUrl` still lives in settings:
+works:
 
 | Server | `baseUrl` |
 | --- | --- |
 | Ollama | `http://localhost:11434/v1` |
 | llama.cpp | `http://localhost:8080/v1` |
+| SGLang | `http://localhost:30000/v1` |
 | LM Studio | `http://localhost:1234/v1` |
 | vLLM | `http://localhost:8000/v1` |
 
-Set `daisy.apiKey` for hosted endpoints. Leave it empty for local ones.
+Modal's managed endpoints work as a hosted option. They serve through SGLang and
+take a workspace proxy token (`wk-….ws-…`) as the API key. The token must be
+scoped to the endpoint's environment, otherwise every request returns
+`401 Webhook token not found`:
+
+```bash
+modal workspace proxy-tokens create
+modal workspace proxy-tokens allow <wk-token-id> main
+```
 
 ## Using the panel
 

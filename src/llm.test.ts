@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listModels, stream, type Chunk, type LlmConfig } from './llm.ts';
+import { listAll, listModels, stream, type Chunk, type LlmConfig } from './llm.ts';
 
 const CFG: LlmConfig = { baseUrl: 'http://test/v1', model: 'm', apiKey: '' };
 
@@ -132,4 +132,28 @@ test('handles a server that sends null instead of omitting fields', async () => 
     kind: 'calls',
     calls: [{ id: 'call_1', name: 'list_dir', args: '{"path": "src"}' }],
   });
+});
+
+test('gathers models from every endpoint and tags them', async () => {
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input);
+    if (url.startsWith('http://local')) {
+      return new Response(JSON.stringify({ data: [{ id: 'llama3.1:8b' }] }), { status: 200 });
+    }
+    if (url.startsWith('http://remote')) {
+      return new Response(JSON.stringify({ data: [{ id: 'Qwen/Qwen3.8-27B' }] }), { status: 200 });
+    }
+    throw new Error('unreachable');
+  }) as typeof fetch;
+
+  const refs = await listAll([
+    { name: 'ollama', baseUrl: 'http://local/v1' },
+    { name: 'modal', baseUrl: 'http://remote/v1', apiKey: 'k' },
+    { name: 'dead', baseUrl: 'http://nowhere/v1' },
+  ]);
+
+  assert.deepEqual(refs, [
+    { endpoint: 'ollama', model: 'llama3.1:8b' },
+    { endpoint: 'modal', model: 'Qwen/Qwen3.8-27B' },
+  ]);
 });

@@ -26,6 +26,17 @@ export interface LlmConfig {
   apiKey: string;
 }
 
+export interface Endpoint {
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+}
+
+export interface ModelRef {
+  endpoint: string;
+  model: string;
+}
+
 export function toWire(call: ToolCall): WireToolCall {
   return { id: call.id, type: 'function', function: { name: call.name, arguments: call.args } };
 }
@@ -226,4 +237,24 @@ async function names(
 
   const picked = pick((await res.json()) as ModelsBody) ?? [];
   return [...new Set(picked.filter((n): n is string => !!n))].sort();
+}
+
+/** Every model across every configured endpoint. Unreachable endpoints are skipped. */
+export async function listAll(endpoints: readonly Endpoint[]): Promise<ModelRef[]> {
+  const perEndpoint = await Promise.all(
+    endpoints.map(async (endpoint) => {
+      try {
+        const models = await listModels({
+          baseUrl: endpoint.baseUrl,
+          model: '',
+          apiKey: endpoint.apiKey ?? '',
+        });
+        return models.map((model) => ({ endpoint: endpoint.name, model }));
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  return perEndpoint.flat();
 }

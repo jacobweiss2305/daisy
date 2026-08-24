@@ -38,20 +38,47 @@
     "configuration": {
       "title": "Daisy",
       "properties": {
-        "daisy.baseUrl": {
+        "daisy.endpoints": {
+          "type": "array",
+          "default": [
+            {
+              "name": "ollama",
+              "baseUrl": "http://localhost:11434/v1",
+              "apiKey": ""
+            }
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Label shown in the dropdown."
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "OpenAI-compatible base URL."
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "Bearer token. Empty for local servers."
+              }
+            },
+            "required": [
+              "name",
+              "baseUrl"
+            ]
+          },
+          "markdownDescription": "Servers to offer in the model dropdown. Every reachable one is listed together."
+        },
+        "daisy.endpoint": {
           "type": "string",
-          "default": "http://localhost:11434/v1",
-          "markdownDescription": "OpenAI-compatible base URL. Ollama, llama.cpp, LM Studio, vLLM, and hosted providers all work."
+          "default": "",
+          "description": "Name of the endpoint serving the selected model. Set by the dropdown."
         },
         "daisy.model": {
           "type": "string",
           "default": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
           "description": "Model identifier passed to the endpoint."
-        },
-        "daisy.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Bearer token. Leave empty for local servers."
         },
         "daisy.maxSteps": {
           "type": "integer",
