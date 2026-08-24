@@ -174,3 +174,62 @@ button:hover { background: var(--vscode-button-hoverBackground); }
   color: var(--vscode-list-activeSelectionForeground);
   background: var(--vscode-list-activeSelectionBackground);
 }
+
+.msg.assistant { white-space: normal; }
+
+.msg.assistant > :first-child { margin-top: 0; }
+.msg.assistant > :last-child { margin-bottom: 0; }
+
+.msg.assistant p { margin: 0 0 8px; }
+.msg.assistant h3,
+.msg.assistant h4,
+.msg.assistant h5,
+.msg.assistant h6 {
+  margin: 12px 0 6px;
+  font-size: 1em;
+}
+
+.msg.assistant ul,
+.msg.assistant ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.msg.assistant li { margin: 2px 0; }
+
+.msg.assistant blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--vscode-textBlockQuote-border, var(--vscode-descriptionForeground));
+  color: var(--vscode-descriptionForeground);
+}
+
+.msg.assistant hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground));
+  margin: 10px 0;
+}
+
+.msg.assistant code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.2));
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.92em;
+}
+
+.msg.assistant pre.code {
+  margin: 0 0 8px;
+  padding: 8px;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15));
+}
+
+.msg.assistant pre.code code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+}
+
+.msg.assistant a { color: var(--vscode-textLink-foreground); }

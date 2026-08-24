@@ -197,6 +197,7 @@ export class ChatView implements vscode.WebviewViewProvider {
   <textarea id="prompt" rows="3" placeholder="Ask about this workspace, @ to attach a file"></textarea>
   <button id="submit" type="submit">Send</button>
 </form>
+<script nonce="${nonce}" src="${uri('markdown.js')}"></script>
 <script nonce="${nonce}" src="${uri('main.js')}"></script>
 </body>
 </html>`;

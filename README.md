@@ -104,6 +104,12 @@ and inlined ahead of your message as a `<file path="...">` block. Mentions that 
 not resolve to a readable file inside the workspace are left as ordinary text, so
 `me@example.com` stays an email address.
 
+**Formatting.** Replies render as markdown: fenced code blocks, inline code,
+headings, lists, quotes, and http links. The renderer builds DOM nodes instead of
+assigning HTML, so markup in a reply is text and there is nothing to sanitise.
+Rendering is coalesced to one pass per animation frame, so a long reply does not
+reparse on every token.
+
 **Reasoning.** Models that think out loud stream into a collapsed Thinking block,
 kept separate from the answer. Reasoning is never written back into the message
 history, so it costs nothing on later turns. Both conventions are handled: a
@@ -132,10 +138,11 @@ repo with a clean tree so `git diff` and `git checkout .` are available.
 ## How it works
 
 ```
-chat.ts    webview panel, approval round trips
+chat.ts    webview panel and host/view protocol
 agent.ts   the loop: stream, run tools, feed results back
 llm.ts     SSE parsing, tool call assembly, reasoning-tag stripping
 tools.ts   tool definitions and the workspace path guard
+media/markdown.js  the reply renderer
 ```
 
 The loop in `agent.ts` streams a response, appends it to the message list, and

@@ -16,6 +16,8 @@ let files = [];
 let matches = [];
 let highlighted = 0;
 let openBubble = null;
+let openRaw = '';
+let frame = 0;
 let openThink = null;
 let busy = false;
 
@@ -78,18 +80,22 @@ window.addEventListener('message', ({ data }) => {
   switch (data.type) {
     case 'text':
       openThink = null;
-      if (!openBubble) openBubble = bubble('assistant');
-      openBubble.textContent += data.text;
+      if (!openBubble) {
+        openBubble = bubble('assistant');
+        openRaw = '';
+      }
+      openRaw += data.text;
+      draw();
       break;
 
     case 'think':
-      openBubble = null;
+      closeBubble();
       if (!openThink) openThink = thinkBlock();
       openThink.append(data.text);
       break;
 
     case 'tool':
-      openBubble = null;
+      closeBubble();
       openThink = null;
       cards.set(data.id, toolCard(data));
       break;
@@ -100,7 +106,7 @@ window.addEventListener('message', ({ data }) => {
       break;
 
     case 'status':
-      openBubble = null;
+      closeBubble();
       openThink = null;
       bubble('status').textContent = data.text;
       break;
@@ -122,9 +128,13 @@ window.addEventListener('message', ({ data }) => {
     case 'history':
       log.replaceChildren();
       cards.clear();
-      openBubble = null;
+      closeBubble();
       openThink = null;
-      for (const item of data.items) bubble(item.role).textContent = item.text;
+      for (const item of data.items) {
+        const el = bubble(item.role);
+        if (item.role === 'assistant') el.append(renderMarkdown(item.text));
+        else el.textContent = item.text;
+      }
       break;
 
     case 'files':
@@ -132,7 +142,7 @@ window.addEventListener('message', ({ data }) => {
       break;
 
     case 'done':
-      openBubble = null;
+      closeBubble();
       openThink = null;
       setBusy(false);
       break;
@@ -230,6 +240,26 @@ function fill(select, entries, selected, empty) {
       return option;
     }),
   );
+}
+
+/** Coalesces re-renders to one a frame so a long reply does not reparse per token. */
+function draw() {
+  if (frame) return;
+  frame = requestAnimationFrame(() => {
+    frame = 0;
+    if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
+    log.scrollTop = log.scrollHeight;
+  });
+}
+
+function closeBubble() {
+  if (frame) {
+    cancelAnimationFrame(frame);
+    frame = 0;
+  }
+  if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
+  openBubble = null;
+  openRaw = '';
 }
 
 function bubble(role) {
