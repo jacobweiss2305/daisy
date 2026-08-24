@@ -5,7 +5,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ChatView.viewId,
-      new ChatView(context.extensionUri),
+      new ChatView(context.extensionUri, context.workspaceState),
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
   );

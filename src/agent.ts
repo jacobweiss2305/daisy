@@ -3,6 +3,7 @@ import { SPECS, TOOLS, type Args } from './tools.ts';
 
 export type AgentEvent =
   | { kind: 'text'; text: string }
+  | { kind: 'think'; text: string }
   | { kind: 'tool'; call: ToolCall }
   | { kind: 'result'; id: string; output: string; failed: boolean }
   | { kind: 'limit' };
@@ -25,6 +26,8 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
       if (chunk.kind === 'text') {
         text += chunk.text;
         yield { kind: 'text', text: chunk.text };
+      } else if (chunk.kind === 'think') {
+        yield { kind: 'think', text: chunk.text };
       } else {
         calls = chunk.calls;
       }

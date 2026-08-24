@@ -1,37 +1,55 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import { run, type AgentEvent } from './agent.ts';
-import { listModels, type LlmConfig, type Message, type ToolCall } from './llm.ts';
+import { listModels, type LlmConfig, type ToolCall } from './llm.ts';
+import { Sessions, type Session, type Store } from './sessions.ts';
+import { expandMentions } from './tools.ts';
 
 type ToView =
   | { type: 'text'; text: string }
+  | { type: 'think'; text: string }
   | { type: 'tool'; id: string; name: string; args: string }
   | { type: 'result'; id: string; output: string; failed: boolean }
   | { type: 'approve'; id: string; name: string; args: string }
   | { type: 'status'; text: string }
   | { type: 'models'; items: string[]; selected: string }
+  | { type: 'sessions'; items: { id: string; title: string }[]; active: string }
+  | { type: 'history'; items: { role: 'user' | 'assistant'; text: string }[] }
+  | { type: 'files'; items: string[] }
   | { type: 'done' };
 
 type FromView =
   | { type: 'send'; text: string }
   | { type: 'approval'; id: string; ok: boolean }
   | { type: 'model'; name: string }
+  | { type: 'session'; id: string }
+  | { type: 'new' }
   | { type: 'refresh' }
   | { type: 'ready' }
   | { type: 'cancel' };
 
-const SYSTEM = `You are Daisy, a coding agent inside VS Code, working in the user's open folder.
-Use the tools to inspect and change files rather than guessing or asking the user to paste code.
-Paths are relative to the workspace root. Keep replies short.`;
+const SYSTEM = [
+  "You are Daisy, a coding agent inside VS Code, working in the user's open folder.",
+  'Use the tools to inspect and change files rather than guessing or asking for pasted code.',
+  'Paths are relative to the workspace root. Keep replies short.',
+].join('\n');
+
+const FILE_BLOCK = /<file path="[^"]*">[\s\S]*?<\/file>\n\n/g;
 
 export class ChatView implements vscode.WebviewViewProvider {
   static readonly viewId = 'daisy.chat';
 
-  private readonly messages: Message[] = [{ role: 'system', content: SYSTEM }];
+  private readonly ext: vscode.Uri;
+  private readonly sessions: Sessions;
   private readonly approvals = new Map<string, (ok: boolean) => void>();
+  private session: Session;
   private active: AbortController | undefined;
 
-  constructor(private readonly ext: vscode.Uri) {}
+  constructor(ext: vscode.Uri, store: Store) {
+    this.ext = ext;
+    this.sessions = new Sessions(store, SYSTEM);
+    this.session = this.sessions.active();
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true, localResourceRoots: [this.ext] };
@@ -41,6 +59,12 @@ export class ChatView implements vscode.WebviewViewProvider {
 
   private receive(message: FromView, webview: vscode.Webview): void {
     switch (message.type) {
+      case 'ready':
+        this.sendSessions(webview);
+        this.sendHistory(webview);
+        void this.sendModels(webview);
+        void this.sendFiles(webview);
+        break;
       case 'send':
         if (!this.active) void this.turn(message.text, webview);
         break;
@@ -48,12 +72,21 @@ export class ChatView implements vscode.WebviewViewProvider {
         this.approvals.get(message.id)?.(message.ok);
         this.approvals.delete(message.id);
         break;
+      case 'session':
+        this.session = this.sessions.select(message.id);
+        this.sendSessions(webview);
+        this.sendHistory(webview);
+        break;
+      case 'new':
+        this.session = this.sessions.create();
+        this.sendSessions(webview);
+        this.sendHistory(webview);
+        break;
       case 'model':
         void vscode.workspace
           .getConfiguration('daisy')
           .update('model', message.name, vscode.ConfigurationTarget.Global);
         break;
-      case 'ready':
       case 'refresh':
         void this.sendModels(webview);
         break;
@@ -69,7 +102,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     if (!root) {
-      post({ type: 'status', text: 'Open a folder to give the agent a workspace.' });
+      post({ type: 'status', text: 'Open a folder to give Daisy a workspace.' });
       post({ type: 'done' });
       return;
     }
@@ -77,7 +110,10 @@ export class ChatView implements vscode.WebviewViewProvider {
     const { cfg, maxSteps } = settings();
     const controller = new AbortController();
     this.active = controller;
-    this.messages.push({ role: 'user', content: text });
+
+    this.session.messages.push({ role: 'user', content: await expandMentions(text, root) });
+    this.sessions.save(this.session);
+    this.sendSessions(webview);
 
     try {
       const deps = {
@@ -87,15 +123,46 @@ export class ChatView implements vscode.WebviewViewProvider {
         signal: controller.signal,
         approve: (call: ToolCall) => this.ask(call, webview),
       };
-      for await (const event of run(this.messages, deps)) post(project(event));
+      for await (const event of run(this.session.messages, deps)) post(project(event));
     } catch (e) {
       const reason = controller.signal.aborted ? 'Cancelled.' : (e as Error).message;
       post({ type: 'status', text: reason });
     } finally {
       this.active = undefined;
       this.denyPending();
+      this.sessions.save(this.session);
       post({ type: 'done' });
     }
+  }
+
+  private sendSessions(webview: vscode.Webview): void {
+    void webview.postMessage({
+      type: 'sessions',
+      items: this.sessions.list().map(({ id, title }) => ({ id, title })),
+      active: this.session.id,
+    } satisfies ToView);
+  }
+
+  private sendHistory(webview: vscode.Webview): void {
+    const items = this.session.messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .filter((m) => m.content.trim())
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        text: m.content.replace(FILE_BLOCK, ''),
+      }));
+
+    void webview.postMessage({ type: 'history', items } satisfies ToView);
+  }
+
+  private async sendFiles(webview: vscode.Webview): Promise<void> {
+    const uris = await vscode.workspace.findFiles(
+      '**/*',
+      '**/{node_modules,.git,dist,out,build,.venv,__pycache__}/**',
+      3000,
+    );
+    const items = uris.map((u) => vscode.workspace.asRelativePath(u, false)).sort();
+    void webview.postMessage({ type: 'files', items } satisfies ToView);
   }
 
   private async sendModels(webview: vscode.Webview): Promise<void> {
@@ -144,13 +211,20 @@ export class ChatView implements vscode.WebviewViewProvider {
 <link rel="stylesheet" href="${uri('main.css')}">
 </head>
 <body>
-<div id="bar">
-  <select id="model" title="Model"></select>
-  <button id="refresh" type="button" title="Reload model list">Reload</button>
+<div id="top">
+  <div class="row">
+    <select id="session" title="Chat"></select>
+    <button id="new" type="button" title="Start a new chat">New</button>
+  </div>
+  <div class="row">
+    <select id="model" title="Model"></select>
+    <button id="refresh" type="button" title="Reload model list">Reload</button>
+  </div>
 </div>
 <div id="log"></div>
 <form id="composer">
-  <textarea id="prompt" rows="3" placeholder="Ask about this workspace"></textarea>
+  <div id="mentions" hidden></div>
+  <textarea id="prompt" rows="3" placeholder="Ask about this workspace, @ to attach a file"></textarea>
   <button id="submit" type="submit">Send</button>
 </form>
 <script nonce="${nonce}" src="${uri('main.js')}"></script>
@@ -163,6 +237,8 @@ function project(event: AgentEvent): ToView {
   switch (event.kind) {
     case 'text':
       return { type: 'text', text: event.text };
+    case 'think':
+      return { type: 'think', text: event.text };
     case 'tool':
       return { type: 'tool', id: event.call.id, name: event.call.name, args: event.call.args };
     case 'result':

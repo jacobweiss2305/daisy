@@ -58,6 +58,23 @@ works. `daisy.baseUrl` still lives in settings:
 
 Set `daisy.apiKey` for hosted endpoints. Leave it empty for local ones.
 
+## Using the panel
+
+**Chats.** The top dropdown switches between conversations and New starts a fresh
+one. Each is named after its first message and stored in workspace state, so they
+are scoped to the folder you opened and survive a reload. The last 30 are kept.
+
+**Attaching files.** Type `@` in the composer to search the workspace. Arrow keys
+move, Enter or Tab accepts, Escape dismisses. On send, each mentioned file is read
+and inlined ahead of your message as a `<file path="...">` block. Mentions that do
+not resolve to a readable file inside the workspace are left as ordinary text, so
+`me@example.com` stays an email address.
+
+**Reasoning.** Models that think out loud stream into a collapsed Thinking block,
+kept separate from the answer. Reasoning is never written back into the message
+history, so it costs nothing on later turns. Both conventions are handled: a
+`reasoning_content` field on the delta, and `<think>` tags inline in the content.
+
 ## Tools
 
 | Tool | Approval |
@@ -106,8 +123,13 @@ npm test
 ```
 
 Node 24 runs the TypeScript directly, so there is no test framework to install.
-The tests cover the two things that are not obviously correct by reading them:
-reassembling tool call arguments split across SSE deltas, and the path guard.
+The tests cover the parts that are not obviously correct by reading them: SSE
+delta reassembly, splitting reasoning out of the token stream, the path guard,
+mention expansion, and session storage.
+
+That choice constrains the syntax. Node's strip-only mode rejects TypeScript
+parameter properties, so constructors assign their fields explicitly. esbuild
+would accept them; `node --test` will not.
 
 ## Model compatibility
 

@@ -12,13 +12,19 @@ body {
   color: var(--vscode-foreground);
 }
 
-#bar {
+#top {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#top .row {
   display: flex;
   gap: 6px;
   align-items: center;
 }
 
-#bar select {
+#top select {
   flex: 1;
   min-width: 0;
   padding: 4px 6px;
@@ -30,7 +36,7 @@ body {
   font-size: 0.9em;
 }
 
-#bar button {
+#top button {
   padding: 4px 10px;
   font-size: 0.9em;
   color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
@@ -124,3 +130,56 @@ button {
 }
 
 button:hover { background: var(--vscode-button-hoverBackground); }
+
+.think {
+  border-left: 2px solid var(--vscode-descriptionForeground);
+  padding-left: 8px;
+  opacity: 0.85;
+}
+
+.think summary {
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.think pre {
+  margin: 4px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+}
+
+#composer { position: relative; }
+
+#mentions {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  z-index: 1;
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-focusBorder));
+  border-radius: 4px;
+}
+
+.mention {
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention.on {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}

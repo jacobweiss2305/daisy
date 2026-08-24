@@ -17,6 +17,7 @@ export type Message =
 
 export type Chunk =
   | { kind: 'text'; text: string }
+  | { kind: 'think'; text: string }
   | { kind: 'calls'; calls: ToolCall[] };
 
 export interface LlmConfig {
@@ -58,8 +59,11 @@ export async function* stream(
     const delta = parseDelta(frame);
     if (!delta) continue;
 
+    if (delta.reasoning_content) yield { kind: 'think', text: delta.reasoning_content };
+
     if (typeof delta.content === 'string') {
-      const visible = think.push(delta.content);
+      const { visible, thinking } = think.push(delta.content);
+      if (thinking) yield { kind: 'think', text: thinking };
       if (visible) yield { kind: 'text', text: visible };
     }
 
@@ -76,8 +80,8 @@ export async function* stream(
     }
   }
 
-  const trailing = think.flush();
-  if (trailing) yield { kind: 'text', text: trailing };
+  const tail = think.flush();
+  if (tail.visible) yield { kind: 'text', text: tail.visible };
 
   const settled = calls
     .filter((c): c is ToolCall => c !== undefined && c.name !== '')
@@ -88,6 +92,7 @@ export async function* stream(
 
 interface Delta {
   content?: string;
+  reasoning_content?: string;
   tool_calls?: {
     index?: number;
     id?: string;
@@ -132,14 +137,20 @@ async function* sse(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
 const OPEN = '<think>';
 const CLOSE = '</think>';
 
-/** Drops reasoning spans from a token stream, holding back tags split across chunks. */
+interface Split {
+  visible: string;
+  thinking: string;
+}
+
+/** Splits a token stream into visible text and reasoning, holding back tags cut across chunks. */
 class ThinkFilter {
   private inside = false;
   private pending = '';
 
-  push(text: string): string {
+  push(text: string): Split {
     let rest = this.pending + text;
-    let out = '';
+    let visible = '';
+    let thinking = '';
     this.pending = '';
 
     for (;;) {
@@ -147,23 +158,28 @@ class ThinkFilter {
       const at = rest.indexOf(tag);
 
       if (at !== -1) {
-        if (!this.inside) out += rest.slice(0, at);
+        if (this.inside) thinking += rest.slice(0, at);
+        else visible += rest.slice(0, at);
         rest = rest.slice(at + tag.length);
         this.inside = !this.inside;
         continue;
       }
 
       const held = overlap(rest, tag);
-      if (!this.inside) out += rest.slice(0, rest.length - held);
+      const ready = rest.slice(0, rest.length - held);
+      if (this.inside) thinking += ready;
+      else visible += ready;
+
       this.pending = rest.slice(rest.length - held);
-      return out;
+      return { visible, thinking };
     }
   }
 
-  flush(): string {
-    const rest = this.inside ? '' : this.pending;
+  /** A tag left half-open at end of stream was literal text, unless we were mid-reasoning. */
+  flush(): Split {
+    const rest = this.pending;
     this.pending = '';
-    return rest;
+    return this.inside ? { visible: '', thinking: '' } : { visible: rest, thinking: '' };
   }
 }
 

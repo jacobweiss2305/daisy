@@ -127,3 +127,23 @@ export const SPECS: readonly unknown[] = [...TOOLS.values()].map((t) => t.spec);
 function join(...parts: (string | undefined)[]): string {
   return parts.filter(Boolean).join('\n').trim();
 }
+
+const MENTION = /@([^\s@]+)/g;
+
+/** Inlines the contents of @-mentioned files ahead of the user's text. */
+export async function expandMentions(text: string, root: string): Promise<string> {
+  const paths = [...new Set([...text.matchAll(MENTION)].map((m) => m[1]).filter(Boolean))];
+  const blocks: string[] = [];
+
+  for (const rel of paths) {
+    try {
+      const body = await fs.readFile(resolve(root, rel as string), 'utf8');
+      const clipped = body.length > MAX_READ ? `${body.slice(0, MAX_READ)}\n[truncated]` : body;
+      blocks.push(`<file path="${rel}">\n${clipped}\n</file>`);
+    } catch {
+      // an unreadable mention stays plain text
+    }
+  }
+
+  return blocks.length ? `${blocks.join('\n\n')}\n\n${text}` : text;
+}

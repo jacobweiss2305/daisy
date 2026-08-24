@@ -22,6 +22,9 @@ async function collect(deltas: unknown[]): Promise<Chunk[]> {
 const text = (chunks: Chunk[]): string =>
   chunks.filter((c) => c.kind === 'text').map((c) => c.text).join('');
 
+const thinking = (chunks: Chunk[]): string =>
+  chunks.filter((c) => c.kind === 'think').map((c) => c.text).join('');
+
 test('strips reasoning spans split across chunk boundaries', async () => {
   const chunks = await collect([
     { content: 'a<thi' },
@@ -29,6 +32,22 @@ test('strips reasoning spans split across chunk boundaries', async () => {
     { content: 'nk>b' },
   ]);
   assert.equal(text(chunks), 'ab');
+});
+
+test('emits reasoning on its own channel', async () => {
+  const chunks = await collect([
+    { content: 'a<thi' },
+    { content: 'nk>why not</thi' },
+    { content: 'nk>b' },
+  ]);
+  assert.equal(thinking(chunks), 'why not');
+  assert.equal(text(chunks), 'ab');
+});
+
+test('passes through a reasoning_content field', async () => {
+  const chunks = await collect([{ reasoning_content: 'step one' }, { content: 'done' }]);
+  assert.equal(thinking(chunks), 'step one');
+  assert.equal(text(chunks), 'done');
 });
 
 test('keeps an unterminated tag as literal text', async () => {
