@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import { run, type AgentEvent } from './agent.ts';
-import { listAll, type Endpoint, type LlmConfig, type ModelRef, type ToolCall } from './llm.ts';
+import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { expandMentions } from './tools.ts';
 
@@ -10,7 +10,6 @@ type ToView =
   | { type: 'think'; text: string }
   | { type: 'tool'; id: string; name: string; args: string }
   | { type: 'result'; id: string; output: string; failed: boolean }
-  | { type: 'approve'; id: string; name: string; args: string }
   | { type: 'status'; text: string }
   | { type: 'models'; items: ModelRef[]; selected: ModelRef }
   | { type: 'sessions'; items: { id: string; title: string }[]; active: string }
@@ -20,7 +19,6 @@ type ToView =
 
 type FromView =
   | { type: 'send'; text: string }
-  | { type: 'approval'; id: string; name: string; ok: boolean; always: boolean }
   | { type: 'model'; ref: ModelRef }
   | { type: 'session'; id: string }
   | { type: 'new' }
@@ -41,7 +39,6 @@ export class ChatView implements vscode.WebviewViewProvider {
 
   private readonly ext: vscode.Uri;
   private readonly sessions: Sessions;
-  private readonly approvals = new Map<string, (ok: boolean) => void>();
   private session: Session;
   private active: AbortController | undefined;
 
@@ -68,11 +65,6 @@ export class ChatView implements vscode.WebviewViewProvider {
       case 'send':
         if (!this.active) void this.turn(message.text, webview);
         break;
-      case 'approval':
-        if (message.always) remember(message.name);
-        this.approvals.get(message.id)?.(message.ok);
-        this.approvals.delete(message.id);
-        break;
       case 'session':
         this.session = this.sessions.select(message.id);
         this.sendSessions(webview);
@@ -94,7 +86,6 @@ export class ChatView implements vscode.WebviewViewProvider {
         break;
       case 'cancel':
         this.active?.abort();
-        this.denyPending();
         break;
     }
   }
@@ -123,7 +114,6 @@ export class ChatView implements vscode.WebviewViewProvider {
         root,
         maxSteps,
         signal: controller.signal,
-        approve: (call: ToolCall) => this.ask(call, webview),
         onWait: (seconds: number) =>
           post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
       };
@@ -133,7 +123,6 @@ export class ChatView implements vscode.WebviewViewProvider {
       post({ type: 'status', text: reason });
     } finally {
       this.active = undefined;
-      this.denyPending();
       this.sessions.save(this.session);
       post({ type: 'done' });
     }
@@ -183,26 +172,6 @@ export class ChatView implements vscode.WebviewViewProvider {
     void webview.postMessage({ type: 'models', items, selected: active } satisfies ToView);
   }
 
-  private ask(call: ToolCall, webview: vscode.Webview): Promise<boolean> {
-    const auto = vscode.workspace.getConfiguration('daisy').get<string[]>('autoApprove', []);
-    if (auto.includes(call.name)) return Promise.resolve(true);
-
-    return new Promise((resolve) => {
-      this.approvals.set(call.id, resolve);
-      void webview.postMessage({
-        type: 'approve',
-        id: call.id,
-        name: call.name,
-        args: call.args,
-      } satisfies ToView);
-    });
-  }
-
-  private denyPending(): void {
-    for (const resolve of this.approvals.values()) resolve(false);
-    this.approvals.clear();
-  }
-
   private html(webview: vscode.Webview): string {
     const nonce = randomBytes(16).toString('base64');
     const uri = (file: string): vscode.Uri =>
@@ -236,15 +205,6 @@ export class ChatView implements vscode.WebviewViewProvider {
 </body>
 </html>`;
   }
-}
-
-/** Adds a tool to the always-allow list so it stops prompting. */
-function remember(name: string): void {
-  const config = vscode.workspace.getConfiguration('daisy');
-  const auto = config.get<string[]>('autoApprove', []);
-  if (auto.includes(name)) return;
-
-  void config.update('autoApprove', [...auto, name], vscode.ConfigurationTarget.Global);
 }
 
 function project(event: AgentEvent): ToView {

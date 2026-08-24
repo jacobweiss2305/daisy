@@ -12,7 +12,6 @@ export type Args = Record<string, unknown>;
 
 export interface Tool {
   spec: unknown;
-  approve: boolean;
   run(args: Args, root: string): Promise<string>;
 }
 
@@ -50,7 +49,6 @@ export const TOOLS: ReadonlyMap<string, Tool> = new Map<string, Tool>([
     'read_file',
     {
       spec: spec('read_file', 'Read a UTF-8 file.', { path: text }, ['path']),
-      approve: false,
       async run(args, root) {
         const body = await fs.readFile(resolve(root, str(args, 'path')), 'utf8');
         return body.length > MAX_READ ? `${body.slice(0, MAX_READ)}\n\n[truncated]` : body;
@@ -61,7 +59,6 @@ export const TOOLS: ReadonlyMap<string, Tool> = new Map<string, Tool>([
     'list_dir',
     {
       spec: spec('list_dir', 'List a directory. Defaults to the workspace root.', { path: text }, []),
-      approve: false,
       async run(args, root) {
         const rel = typeof args['path'] === 'string' ? args['path'] : '.';
         const entries = await fs.readdir(resolve(root, rel), { withFileTypes: true });
@@ -76,7 +73,6 @@ export const TOOLS: ReadonlyMap<string, Tool> = new Map<string, Tool>([
         'path',
         'content',
       ]),
-      approve: true,
       async run(args, root) {
         const target = resolve(root, str(args, 'path'));
         await fs.mkdir(path.dirname(target), { recursive: true });
@@ -89,7 +85,6 @@ export const TOOLS: ReadonlyMap<string, Tool> = new Map<string, Tool>([
     'delete_file',
     {
       spec: spec('delete_file', 'Delete a file or directory.', { path: text }, ['path']),
-      approve: true,
       async run(args, root) {
         const target = resolve(root, str(args, 'path'));
         await fs.rm(target, { recursive: true, force: true });
@@ -103,7 +98,6 @@ export const TOOLS: ReadonlyMap<string, Tool> = new Map<string, Tool>([
       spec: spec('run_command', 'Run a shell command in the workspace root.', { command: text }, [
         'command',
       ]),
-      approve: true,
       async run(args, root) {
         const command = str(args, 'command');
         try {

@@ -99,12 +99,6 @@ window.addEventListener('message', ({ data }) => {
       cards.delete(data.id);
       break;
 
-    case 'approve':
-      openBubble = null;
-      openThink = null;
-      requestApproval(data);
-      break;
-
     case 'status':
       openBubble = null;
       openThink = null;
@@ -284,52 +278,9 @@ function toolCard({ name, args }) {
   };
 }
 
-function requestApproval({ id, name, args }) {
-  const el = document.createElement('div');
-  el.className = 'approve';
-
-  const title = document.createElement('div');
-  title.className = 'title';
-  title.textContent = `Allow ${name}?`;
-
-  const detail = document.createElement('pre');
-  detail.textContent = indent(args);
-
-  const row = document.createElement('div');
-  row.className = 'row';
-
-  for (const [label, ok, always] of [
-    ['Allow', true, false],
-    ['Always', true, true],
-    ['Deny', false, false],
-  ]) {
-    const button = document.createElement('button');
-    button.textContent = label;
-    button.addEventListener('click', () => {
-      vscode.postMessage({ type: 'approval', id, name, ok, always });
-      el.className = 'msg status';
-      el.textContent = always
-        ? `${name} allowed, and will not ask again`
-        : `${name} ${ok ? 'allowed' : 'denied'}`;
-    });
-    row.append(button);
-  }
-
-  el.append(title, detail, row);
-  log.append(el);
-}
-
 function setBusy(value) {
   busy = value;
   submit.textContent = value ? 'Stop' : 'Send';
-}
-
-function indent(args) {
-  try {
-    return JSON.stringify(JSON.parse(args), null, 2);
-  } catch {
-    return args;
-  }
 }
 
 function oneLine(args) {

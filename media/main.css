@@ -84,8 +84,7 @@ body {
   font-size: 0.9em;
 }
 
-.tool pre,
-.approve pre {
+.tool pre {
   margin: 4px 0 0;
   max-height: 240px;
   overflow: auto;
@@ -95,14 +94,6 @@ body {
   font-size: 0.9em;
 }
 
-.approve {
-  padding: 8px;
-  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-focusBorder));
-  border-radius: 4px;
-}
-
-.approve .title { font-weight: 600; }
-.approve .row { display: flex; gap: 8px; margin-top: 8px; }
 
 #composer { display: flex; gap: 8px; align-items: flex-end; }
 

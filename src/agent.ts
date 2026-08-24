@@ -13,7 +13,6 @@ export interface AgentDeps {
   root: string;
   maxSteps: number;
   signal: AbortSignal;
-  approve(call: ToolCall): Promise<boolean>;
   onWait?: (seconds: number) => void;
 }
 
@@ -70,10 +69,6 @@ async function execute(
     args = parsed as Args;
   } catch (e) {
     return { output: `bad arguments: ${(e as Error).message}`, failed: true };
-  }
-
-  if (tool.approve && !(await deps.approve(call))) {
-    return { output: 'denied by user', failed: true };
   }
 
   try {

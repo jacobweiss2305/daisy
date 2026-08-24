@@ -24,11 +24,6 @@ test('rejects arguments of the wrong type', async () => {
   await assert.rejects(() => tool('read_file').run({ path: 42 }, root), /must be a string/);
 });
 
-test('requires approval for everything that mutates', () => {
-  const approved = [...TOOLS].filter(([, t]) => t.approve).map(([name]) => name);
-  assert.deepEqual(approved.sort(), ['delete_file', 'run_command', 'write_file']);
-});
-
 test('inlines the contents of an @-mentioned file', async () => {
   const dir = await scratch();
   await writeFile(join(dir, 'note.txt'), 'hello', 'utf8');

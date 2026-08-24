@@ -102,28 +102,23 @@ history, so it costs nothing on later turns. Both conventions are handled: a
 
 ## Tools
 
-| Tool | Approval |
+| Tool | What it does |
 | --- | --- |
-| `read_file` | no |
-| `list_dir` | no |
-| `write_file` | yes |
-| `delete_file` | yes |
-| `run_command` | yes |
+| `read_file` | Read a UTF-8 file |
+| `list_dir` | List a directory |
+| `write_file` | Create or overwrite a file |
+| `delete_file` | Delete a file or directory |
+| `run_command` | Run a shell command in the workspace root |
 
-Anything that changes your machine waits for a button press in the panel. The
-prompt has three buttons: Allow runs it once, Deny refuses it, and Always adds
-the tool to `daisy.autoApprove` so it stops asking. Clear that list in settings
-to get the prompts back.
+Daisy runs these autonomously. Nothing prompts, and nothing is confirmed.
 
-Auto-approving `read_file` or `list_dir` costs nothing, since they already run
-without asking. Auto-approving `run_command` hands the model an unattended shell
-in your workspace, which is the point of the gate. Every
-path is resolved against the workspace root and rejected if it escapes, so the
-model cannot reach `../../.ssh`. Symlinks pointing outside the workspace are not
-followed up, which is a real gap if you have them.
+The only boundary is the path guard: every path is resolved against the
+workspace root and rejected if it escapes, so file tools cannot reach
+`../../.ssh`. Symlinks pointing outside the workspace are not followed up.
 
-`run_command` gives a language model a shell on your machine. The approval prompt
-shows the exact command before it runs. Read it.
+`run_command` is not bounded by that guard, or by anything else. It runs whatever
+the model emits, in your workspace root, with your permissions. Work in a git
+repo with a clean tree so `git diff` and `git checkout .` are available.
 
 ## How it works
 
