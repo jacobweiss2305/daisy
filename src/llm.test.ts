@@ -106,3 +106,30 @@ test('returns nothing when neither endpoint answers', async () => {
   serve({});
   assert.deepEqual(await listModels(CFG), []);
 });
+
+// SGLang sends explicit nulls where vLLM omits the field. Captured from a
+// Modal endpoint serving Qwen3.8-27B.
+test('handles a server that sends null instead of omitting fields', async () => {
+  const chunks = await collect([
+    { reasoning_content: null, role: 'assistant', content: '' },
+    { role: null, content: '\n\n', reasoning_content: null, tool_calls: null },
+    {
+      role: null,
+      content: null,
+      reasoning_content: 'deciding',
+      tool_calls: [{ id: 'call_1', index: 0, type: 'function', function: { name: 'list_dir' } }],
+    },
+    {
+      role: null,
+      content: null,
+      tool_calls: [{ id: null, index: 0, function: { arguments: '{"path": "src"}' } }],
+    },
+  ]);
+
+  assert.equal(text(chunks), '\n\n');
+  assert.equal(thinking(chunks), 'deciding');
+  assert.deepEqual(chunks.at(-1), {
+    kind: 'calls',
+    calls: [{ id: 'call_1', name: 'list_dir', args: '{"path": "src"}' }],
+  });
+});

@@ -137,6 +137,11 @@ Tool calls are read from the standard `tool_calls` field. Models that instead
 emit tool calls as XML inside the content field will not work without a parser
 for that format.
 
+Servers disagree about absent fields. vLLM omits them; SGLang sends an explicit
+`null` for `content`, `reasoning_content`, and `tool_calls`. Both are handled,
+and a regression test pins the null-heavy shape using frames captured from a
+Modal endpoint serving Qwen3.8-27B.
+
 ## License
 
 MIT
