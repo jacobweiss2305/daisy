@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import { run, type AgentEvent } from './agent.ts';
-import type { LlmConfig, Message, ToolCall } from './llm.ts';
+import { listModels, type LlmConfig, type Message, type ToolCall } from './llm.ts';
 
 type ToView =
   | { type: 'text'; text: string }
@@ -9,11 +9,14 @@ type ToView =
   | { type: 'result'; id: string; output: string; failed: boolean }
   | { type: 'approve'; id: string; name: string; args: string }
   | { type: 'status'; text: string }
+  | { type: 'models'; items: string[]; selected: string }
   | { type: 'done' };
 
 type FromView =
   | { type: 'send'; text: string }
   | { type: 'approval'; id: string; ok: boolean }
+  | { type: 'model'; name: string }
+  | { type: 'refresh' }
   | { type: 'cancel' };
 
 const SYSTEM = `You are Daisy, a coding agent inside VS Code, working in the user's open folder.
@@ -33,6 +36,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true, localResourceRoots: [this.ext] };
     view.webview.html = this.html(view.webview);
     view.webview.onDidReceiveMessage((m: FromView) => this.receive(m, view.webview));
+    void this.sendModels(view.webview);
   }
 
   private receive(message: FromView, webview: vscode.Webview): void {
@@ -43,6 +47,14 @@ export class ChatView implements vscode.WebviewViewProvider {
       case 'approval':
         this.approvals.get(message.id)?.(message.ok);
         this.approvals.delete(message.id);
+        break;
+      case 'model':
+        void vscode.workspace
+          .getConfiguration('daisy')
+          .update('model', message.name, vscode.ConfigurationTarget.Global);
+        break;
+      case 'refresh':
+        void this.sendModels(webview);
         break;
       case 'cancel':
         this.active?.abort();
@@ -61,7 +73,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { maxSteps, ...cfg } = settings();
+    const { cfg, maxSteps } = settings();
     const controller = new AbortController();
     this.active = controller;
     this.messages.push({ role: 'user', content: text });
@@ -83,6 +95,22 @@ export class ChatView implements vscode.WebviewViewProvider {
       this.denyPending();
       post({ type: 'done' });
     }
+  }
+
+  private async sendModels(webview: vscode.Webview): Promise<void> {
+    const { cfg } = settings();
+    let items: string[] = [];
+
+    try {
+      items = await listModels(cfg);
+    } catch (e) {
+      void webview.postMessage({
+        type: 'status',
+        text: `Cannot reach ${cfg.baseUrl}: ${(e as Error).message}`,
+      } satisfies ToView);
+    }
+
+    void webview.postMessage({ type: 'models', items, selected: cfg.model } satisfies ToView);
   }
 
   private ask(call: ToolCall, webview: vscode.Webview): Promise<boolean> {
@@ -115,6 +143,10 @@ export class ChatView implements vscode.WebviewViewProvider {
 <link rel="stylesheet" href="${uri('main.css')}">
 </head>
 <body>
+<div id="bar">
+  <select id="model" title="Model"></select>
+  <button id="refresh" type="button" title="Reload model list">Reload</button>
+</div>
 <div id="log"></div>
 <form id="composer">
   <textarea id="prompt" rows="3" placeholder="Ask about this workspace"></textarea>
@@ -139,12 +171,14 @@ function project(event: AgentEvent): ToView {
   }
 }
 
-function settings(): LlmConfig & { maxSteps: number } {
+function settings(): { cfg: LlmConfig; maxSteps: number } {
   const c = vscode.workspace.getConfiguration('daisy');
   return {
-    baseUrl: c.get<string>('baseUrl', 'http://localhost:11434/v1'),
-    model: c.get<string>('model', ''),
-    apiKey: c.get<string>('apiKey', ''),
+    cfg: {
+      baseUrl: c.get<string>('baseUrl', 'http://localhost:11434/v1'),
+      model: c.get<string>('model', ''),
+      apiKey: c.get<string>('apiKey', ''),
+    },
     maxSteps: c.get<number>('maxSteps', 12),
   };
 }

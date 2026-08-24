@@ -4,6 +4,8 @@ const log = document.getElementById('log');
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const submit = document.getElementById('submit');
+const model = document.getElementById('model');
+const refresh = document.getElementById('refresh');
 
 const cards = new Map();
 let openBubble = null;
@@ -25,6 +27,10 @@ form.addEventListener('submit', (event) => {
   setBusy(true);
   vscode.postMessage({ type: 'send', text });
 });
+
+refresh.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+
+model.addEventListener('change', () => vscode.postMessage({ type: 'model', name: model.value }));
 
 prompt.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -60,6 +66,10 @@ window.addEventListener('message', ({ data }) => {
       bubble('status').textContent = data.text;
       break;
 
+    case 'models':
+      fillModels(data.items, data.selected);
+      break;
+
     case 'done':
       openBubble = null;
       setBusy(false);
@@ -68,6 +78,29 @@ window.addEventListener('message', ({ data }) => {
 
   log.scrollTop = log.scrollHeight;
 });
+
+function fillModels(items, selected) {
+  const options = !selected || items.includes(selected) ? items : [selected, ...items];
+
+  if (!options.length) {
+    const empty = document.createElement('option');
+    empty.textContent = 'no models found';
+    empty.disabled = true;
+    empty.selected = true;
+    model.replaceChildren(empty);
+    return;
+  }
+
+  model.replaceChildren(
+    ...options.map((name) => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      option.selected = name === selected;
+      return option;
+    }),
+  );
+}
 
 function bubble(role) {
   const el = document.createElement('div');

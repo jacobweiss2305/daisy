@@ -12,6 +12,31 @@ body {
   color: var(--vscode-foreground);
 }
 
+#bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#bar select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  color: var(--vscode-dropdown-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+
+#bar button {
+  padding: 4px 10px;
+  font-size: 0.9em;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+  background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+}
+
 #log {
   flex: 1;
   overflow-y: auto;

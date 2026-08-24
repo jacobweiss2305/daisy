@@ -41,8 +41,17 @@ Defaults assume Ollama on `localhost:11434`:
 ollama pull hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL
 ```
 
+Pick the model from the dropdown at the top of the panel. It lists whatever the
+endpoint reports, and the choice writes straight to `daisy.model`, so the panel
+and the settings UI never disagree. Reload re-reads the list after you pull a new
+model.
+
+Model discovery tries `GET /v1/models` first and falls back to Ollama's
+`/api/tags`, because Ollama returns `{"data": null}` from the OpenAI endpoint
+while it is still indexing.
+
 Any server speaking `POST /v1/chat/completions` with streaming and tool calls
-works. Change `daisy.baseUrl` and `daisy.model` in settings:
+works. `daisy.baseUrl` still lives in settings:
 
 | Server | `baseUrl` |
 | --- | --- |

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stream, type Chunk, type LlmConfig } from './llm.ts';
+import { listModels, stream, type Chunk, type LlmConfig } from './llm.ts';
 
 const CFG: LlmConfig = { baseUrl: 'http://test/v1', model: 'm', apiKey: '' };
 
@@ -58,4 +58,32 @@ test('keeps parallel tool calls separate by index', async () => {
   ]);
   const last = chunks.at(-1);
   assert.equal(last?.kind === 'calls' && last.calls.length, 2);
+});
+
+function serve(routes: Record<string, unknown>): void {
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input);
+    const body = Object.entries(routes).find(([path]) => url.endsWith(path))?.[1];
+    return body === undefined
+      ? new Response('nope', { status: 404 })
+      : new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+}
+
+test('lists models from the OpenAI endpoint', async () => {
+  serve({ '/v1/models': { data: [{ id: 'qwen3.8' }, { id: 'llama3.1:8b' }] } });
+  assert.deepEqual(await listModels(CFG), ['llama3.1:8b', 'qwen3.8']);
+});
+
+test('falls back to the Ollama list when the OpenAI endpoint is empty', async () => {
+  serve({
+    '/v1/models': { object: 'list', data: null },
+    '/api/tags': { models: [{ name: 'llama3.1:8b' }] },
+  });
+  assert.deepEqual(await listModels(CFG), ['llama3.1:8b']);
+});
+
+test('returns nothing when neither endpoint answers', async () => {
+  serve({});
+  assert.deepEqual(await listModels(CFG), []);
 });

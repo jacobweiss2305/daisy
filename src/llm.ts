@@ -35,13 +35,10 @@ export async function* stream(
   tools: readonly unknown[],
   signal: AbortSignal,
 ): AsyncGenerator<Chunk> {
-  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const res = await fetch(`${base(cfg)}/chat/completions`, {
     method: 'POST',
     signal,
-    headers: {
-      'content-type': 'application/json',
-      ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
-    },
+    headers: headers(cfg),
     body: JSON.stringify({
       model: cfg.model,
       messages,
@@ -176,4 +173,41 @@ function overlap(s: string, tag: string): number {
     if (s.endsWith(tag.slice(0, n))) return n;
   }
   return 0;
+}
+
+function base(cfg: LlmConfig): string {
+  return cfg.baseUrl.replace(/\/$/, '');
+}
+
+function headers(cfg: LlmConfig): Record<string, string> {
+  return {
+    'content-type': 'application/json',
+    ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
+  };
+}
+
+interface ModelsBody {
+  data?: { id?: string }[];
+  models?: { name?: string }[];
+}
+
+/** Model ids from the OpenAI endpoint, falling back to Ollama's native list. */
+export async function listModels(cfg: LlmConfig): Promise<string[]> {
+  const standard = await names(`${base(cfg)}/models`, cfg, (b) => b.data?.map((m) => m.id));
+  if (standard.length) return standard;
+
+  const origin = new URL(base(cfg)).origin;
+  return names(`${origin}/api/tags`, cfg, (b) => b.models?.map((m) => m.name));
+}
+
+async function names(
+  url: string,
+  cfg: LlmConfig,
+  pick: (body: ModelsBody) => (string | undefined)[] | undefined,
+): Promise<string[]> {
+  const res = await fetch(url, { headers: headers(cfg) });
+  if (!res.ok) return [];
+
+  const picked = pick((await res.json()) as ModelsBody) ?? [];
+  return [...new Set(picked.filter((n): n is string => !!n))].sort();
 }
