@@ -20,7 +20,7 @@ type ToView =
 
 type FromView =
   | { type: 'send'; text: string }
-  | { type: 'approval'; id: string; ok: boolean }
+  | { type: 'approval'; id: string; name: string; ok: boolean; always: boolean }
   | { type: 'model'; ref: ModelRef }
   | { type: 'session'; id: string }
   | { type: 'new' }
@@ -69,6 +69,7 @@ export class ChatView implements vscode.WebviewViewProvider {
         if (!this.active) void this.turn(message.text, webview);
         break;
       case 'approval':
+        if (message.always) remember(message.name);
         this.approvals.get(message.id)?.(message.ok);
         this.approvals.delete(message.id);
         break;
@@ -183,6 +184,9 @@ export class ChatView implements vscode.WebviewViewProvider {
   }
 
   private ask(call: ToolCall, webview: vscode.Webview): Promise<boolean> {
+    const auto = vscode.workspace.getConfiguration('daisy').get<string[]>('autoApprove', []);
+    if (auto.includes(call.name)) return Promise.resolve(true);
+
     return new Promise((resolve) => {
       this.approvals.set(call.id, resolve);
       void webview.postMessage({
@@ -232,6 +236,15 @@ export class ChatView implements vscode.WebviewViewProvider {
 </body>
 </html>`;
   }
+}
+
+/** Adds a tool to the always-allow list so it stops prompting. */
+function remember(name: string): void {
+  const config = vscode.workspace.getConfiguration('daisy');
+  const auto = config.get<string[]>('autoApprove', []);
+  if (auto.includes(name)) return;
+
+  void config.update('autoApprove', [...auto, name], vscode.ConfigurationTarget.Global);
 }
 
 function project(event: AgentEvent): ToView {

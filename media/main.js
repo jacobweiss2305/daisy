@@ -298,16 +298,19 @@ function requestApproval({ id, name, args }) {
   const row = document.createElement('div');
   row.className = 'row';
 
-  for (const [label, ok] of [
-    ['Allow', true],
-    ['Deny', false],
+  for (const [label, ok, always] of [
+    ['Allow', true, false],
+    ['Always', true, true],
+    ['Deny', false, false],
   ]) {
     const button = document.createElement('button');
     button.textContent = label;
     button.addEventListener('click', () => {
-      vscode.postMessage({ type: 'approval', id, ok });
+      vscode.postMessage({ type: 'approval', id, name, ok, always });
       el.className = 'msg status';
-      el.textContent = `${name} ${ok ? 'allowed' : 'denied'}`;
+      el.textContent = always
+        ? `${name} allowed, and will not ask again`
+        : `${name} ${ok ? 'allowed' : 'denied'}`;
     });
     row.append(button);
   }

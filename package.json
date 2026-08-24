@@ -85,6 +85,14 @@
           "default": 12,
           "minimum": 1,
           "description": "Maximum tool round trips per message."
+        },
+        "daisy.autoApprove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Tools that run without asking. Adding `run_command` gives the model an unattended shell in your workspace."
         }
       }
     }

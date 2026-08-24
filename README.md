@@ -110,7 +110,14 @@ history, so it costs nothing on later turns. Both conventions are handled: a
 | `delete_file` | yes |
 | `run_command` | yes |
 
-Anything that changes your machine waits for a button press in the panel. Every
+Anything that changes your machine waits for a button press in the panel. The
+prompt has three buttons: Allow runs it once, Deny refuses it, and Always adds
+the tool to `daisy.autoApprove` so it stops asking. Clear that list in settings
+to get the prompts back.
+
+Auto-approving `read_file` or `list_dir` costs nothing, since they already run
+without asking. Auto-approving `run_command` hands the model an unattended shell
+in your workspace, which is the point of the gate. Every
 path is resolved against the workspace root and rejected if it escapes, so the
 model cannot reach `../../.ssh`. Symlinks pointing outside the workspace are not
 followed up, which is a real gap if you have them.
