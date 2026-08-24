@@ -1,0 +1,179 @@
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: string;
+}
+
+export interface WireToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export type Message =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string; tool_calls?: WireToolCall[] }
+  | { role: 'tool'; content: string; tool_call_id: string };
+
+export type Chunk =
+  | { kind: 'text'; text: string }
+  | { kind: 'calls'; calls: ToolCall[] };
+
+export interface LlmConfig {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+}
+
+export function toWire(call: ToolCall): WireToolCall {
+  return { id: call.id, type: 'function', function: { name: call.name, arguments: call.args } };
+}
+
+export async function* stream(
+  cfg: LlmConfig,
+  messages: Message[],
+  tools: readonly unknown[],
+  signal: AbortSignal,
+): AsyncGenerator<Chunk> {
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    signal,
+    headers: {
+      'content-type': 'application/json',
+      ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      messages,
+      stream: true,
+      ...(tools.length ? { tools } : {}),
+    }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`${res.status} ${res.statusText}: ${(await res.text()).slice(0, 500)}`);
+  }
+
+  const calls: (ToolCall | undefined)[] = [];
+  const think = new ThinkFilter();
+
+  for await (const frame of sse(res.body)) {
+    const delta = parseDelta(frame);
+    if (!delta) continue;
+
+    if (typeof delta.content === 'string') {
+      const visible = think.push(delta.content);
+      if (visible) yield { kind: 'text', text: visible };
+    }
+
+    for (const d of delta.tool_calls ?? []) {
+      const at = d.index ?? 0;
+      let call = calls[at];
+      if (!call) {
+        call = { id: '', name: '', args: '' };
+        calls[at] = call;
+      }
+      if (d.id) call.id = d.id;
+      if (d.function?.name) call.name = d.function.name;
+      if (d.function?.arguments) call.args += d.function.arguments;
+    }
+  }
+
+  const trailing = think.flush();
+  if (trailing) yield { kind: 'text', text: trailing };
+
+  const settled = calls
+    .filter((c): c is ToolCall => c !== undefined && c.name !== '')
+    .map((c, i) => (c.id ? c : { ...c, id: `call_${i}` }));
+
+  if (settled.length) yield { kind: 'calls', calls: settled };
+}
+
+interface Delta {
+  content?: string;
+  tool_calls?: {
+    index?: number;
+    id?: string;
+    function?: { name?: string; arguments?: string };
+  }[];
+}
+
+function parseDelta(frame: string): Delta | undefined {
+  try {
+    return JSON.parse(frame)?.choices?.[0]?.delta;
+  } catch {
+    return undefined;
+  }
+}
+
+async function* sse(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+
+    buffer += decoder.decode(value, { stream: true }).replace(/\r/g, '');
+
+    let split: number;
+    while ((split = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') return;
+        if (payload) yield payload;
+      }
+    }
+  }
+}
+
+const OPEN = '<think>';
+const CLOSE = '</think>';
+
+/** Drops reasoning spans from a token stream, holding back tags split across chunks. */
+class ThinkFilter {
+  private inside = false;
+  private pending = '';
+
+  push(text: string): string {
+    let rest = this.pending + text;
+    let out = '';
+    this.pending = '';
+
+    for (;;) {
+      const tag = this.inside ? CLOSE : OPEN;
+      const at = rest.indexOf(tag);
+
+      if (at !== -1) {
+        if (!this.inside) out += rest.slice(0, at);
+        rest = rest.slice(at + tag.length);
+        this.inside = !this.inside;
+        continue;
+      }
+
+      const held = overlap(rest, tag);
+      if (!this.inside) out += rest.slice(0, rest.length - held);
+      this.pending = rest.slice(rest.length - held);
+      return out;
+    }
+  }
+
+  flush(): string {
+    const rest = this.inside ? '' : this.pending;
+    this.pending = '';
+    return rest;
+  }
+}
+
+/** Length of the longest suffix of `s` that is a proper prefix of `tag`. */
+function overlap(s: string, tag: string): number {
+  for (let n = Math.min(s.length, tag.length - 1); n > 0; n--) {
+    if (s.endsWith(tag.slice(0, n))) return n;
+  }
+  return 0;
+}

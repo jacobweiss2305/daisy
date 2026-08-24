@@ -1,0 +1,101 @@
+* { box-sizing: border-box; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  margin: 0;
+  padding: 8px;
+  gap: 8px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+}
+
+#log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.msg.user {
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+
+.msg.status {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.tool {
+  border-left: 2px solid var(--vscode-textLink-foreground);
+  padding-left: 8px;
+}
+
+.tool.failed {
+  border-left-color: var(--vscode-errorForeground);
+}
+
+.tool summary {
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+}
+
+.tool pre,
+.approve pre {
+  margin: 4px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+}
+
+.approve {
+  padding: 8px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-focusBorder));
+  border-radius: 4px;
+}
+
+.approve .title { font-weight: 600; }
+.approve .row { display: flex; gap: 8px; margin-top: 8px; }
+
+#composer { display: flex; gap: 8px; align-items: flex-end; }
+
+textarea {
+  flex: 1;
+  resize: none;
+  padding: 6px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+}
+
+textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
+
+button {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: none;
+  border-radius: 4px;
+}
+
+button:hover { background: var(--vscode-button-hoverBackground); }

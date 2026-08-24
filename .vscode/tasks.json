@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "watch",
+      "type": "npm",
+      "script": "watch",
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": {
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "."
+        }
+      }
+    }
+  ]
+}
