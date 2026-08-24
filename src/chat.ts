@@ -123,6 +123,8 @@ export class ChatView implements vscode.WebviewViewProvider {
         maxSteps,
         signal: controller.signal,
         approve: (call: ToolCall) => this.ask(call, webview),
+        onWait: (seconds: number) =>
+          post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
       };
       for await (const event of run(this.session.messages, deps)) post(project(event));
     } catch (e) {

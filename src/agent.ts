@@ -14,6 +14,7 @@ export interface AgentDeps {
   maxSteps: number;
   signal: AbortSignal;
   approve(call: ToolCall): Promise<boolean>;
+  onWait?: (seconds: number) => void;
 }
 
 /** Streams one turn to completion, appending every exchange to `messages`. */
@@ -22,7 +23,7 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
     let text = '';
     let calls: ToolCall[] = [];
 
-    for await (const chunk of stream(deps.cfg, messages, SPECS, deps.signal)) {
+    for await (const chunk of stream(deps.cfg, messages, SPECS, deps.signal, deps.onWait)) {
       if (chunk.kind === 'text') {
         text += chunk.text;
         yield { kind: 'text', text: chunk.text };

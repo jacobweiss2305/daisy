@@ -157,3 +157,38 @@ test('gathers models from every endpoint and tags them', async () => {
     { endpoint: 'modal', model: 'Qwen/Qwen3.8-27B' },
   ]);
 });
+
+test('retries a cold endpoint until it answers', async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls < 3) return new Response('', { status: 503 });
+    return new Response(
+      new TextEncoder().encode(
+        `data: ${JSON.stringify({ choices: [{ delta: { content: 'up' } }] })}\n\ndata: [DONE]\n\n`,
+      ),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+
+  const waits: number[] = [];
+  const out: Chunk[] = [];
+  for await (const c of stream(CFG, [], [], new AbortController().signal, (s) => waits.push(s))) {
+    out.push(c);
+  }
+
+  assert.equal(calls, 3);
+  assert.equal(waits.length, 2);
+  assert.equal(text(out), 'up');
+});
+
+test('reports a non-cold error immediately', async () => {
+  globalThis.fetch = (async () => new Response('bad model', { status: 400 })) as typeof fetch;
+
+  await assert.rejects(
+    async () => {
+      for await (const _ of stream(CFG, [], [], new AbortController().signal)) void _;
+    },
+    /400.*bad model/,
+  );
+});

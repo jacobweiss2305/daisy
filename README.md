@@ -77,6 +77,12 @@ modal workspace proxy-tokens create
 modal workspace proxy-tokens allow <wk-token-id> main
 ```
 
+Scale-to-zero endpoints answer `503` with an empty body until a container is up,
+which took about three and a half minutes for a bf16 27B. Daisy retries `502`,
+`503`, and `504` with backoff for up to five minutes and reports how long it has
+been waiting. Every other status fails immediately, so a real error still
+surfaces at once.
+
 ## Using the panel
 
 **Chats.** The top dropdown switches between conversations and New starts a fresh

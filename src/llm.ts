@@ -46,21 +46,20 @@ export async function* stream(
   messages: Message[],
   tools: readonly unknown[],
   signal: AbortSignal,
+  onWait?: (seconds: number) => void,
 ): AsyncGenerator<Chunk> {
-  const res = await fetch(`${base(cfg)}/chat/completions`, {
-    method: 'POST',
-    signal,
-    headers: headers(cfg),
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      stream: true,
-      ...(tools.length ? { tools } : {}),
-    }),
+  const body = JSON.stringify({
+    model: cfg.model,
+    messages,
+    stream: true,
+    ...(tools.length ? { tools } : {}),
   });
 
+  const res = await send(cfg, body, signal, onWait);
+
   if (!res.ok || !res.body) {
-    throw new Error(`${res.status} ${res.statusText}: ${(await res.text()).slice(0, 500)}`);
+    const detail = (await res.text()).slice(0, 300).trim();
+    throw new Error(`${res.status} ${res.statusText}${detail ? `: ${detail}` : ''}`);
   }
 
   const calls: (ToolCall | undefined)[] = [];
@@ -257,4 +256,47 @@ export async function listAll(endpoints: readonly Endpoint[]): Promise<ModelRef[
   );
 
   return perEndpoint.flat();
+}
+
+// A scale-to-zero endpoint answers 503 with an empty body until a container is
+// up, which can take minutes for a large model.
+const COLD = new Set([502, 503, 504]);
+const GIVE_UP_MS = 5 * 60_000;
+
+async function send(
+  cfg: LlmConfig,
+  body: string,
+  signal: AbortSignal,
+  onWait?: (seconds: number) => void,
+): Promise<Response> {
+  const url = `${base(cfg)}/chat/completions`;
+  const started = Date.now();
+  let delay = 2_000;
+
+  for (;;) {
+    const res = await fetch(url, { method: 'POST', signal, headers: headers(cfg), body });
+    const waited = Date.now() - started;
+
+    if (!COLD.has(res.status) || waited > GIVE_UP_MS) return res;
+
+    onWait?.(Math.round(waited / 1_000));
+    await pause(delay, signal);
+    delay = Math.min(delay * 1.5, 15_000);
+  }
+}
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', stop);
+      resolve();
+    }, ms);
+
+    function stop(): void {
+      clearTimeout(timer);
+      reject(new Error('aborted'));
+    }
+
+    signal.addEventListener('abort', stop, { once: true });
+  });
 }
