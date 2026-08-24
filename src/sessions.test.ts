@@ -13,16 +13,16 @@ function memory(): Store {
   };
 }
 
-test('the first read creates a session seeded with the system prompt', () => {
-  const sessions = new Sessions(memory(), 'be helpful');
+test('the first read creates an empty session', () => {
+  const sessions = new Sessions(memory());
   const first = sessions.active();
 
   assert.equal(sessions.list().length, 1);
-  assert.deepEqual(first.messages, [{ role: 'system', content: 'be helpful' }]);
+  assert.deepEqual(first.messages, []);
 });
 
 test('active returns the same session until another is selected', () => {
-  const sessions = new Sessions(memory(), 'sys');
+  const sessions = new Sessions(memory());
   const first = sessions.active();
   const second = sessions.create();
 
@@ -32,7 +32,7 @@ test('active returns the same session until another is selected', () => {
 });
 
 test('new sessions land at the top of the list', () => {
-  const sessions = new Sessions(memory(), 'sys');
+  const sessions = new Sessions(memory());
   sessions.create();
   const newest = sessions.create();
 
@@ -40,7 +40,7 @@ test('new sessions land at the top of the list', () => {
 });
 
 test('saving names the session after its first user message', () => {
-  const sessions = new Sessions(memory(), 'sys');
+  const sessions = new Sessions(memory());
   const session = sessions.active();
 
   session.messages.push({ role: 'user', content: '  fix   the parser  ' });

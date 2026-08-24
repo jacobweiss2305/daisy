@@ -79,9 +79,21 @@
           "type": "string",
           "default": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
           "description": "Model identifier passed to the endpoint."
+        },
+        "daisy.systemPrompt": {
+          "type": "string",
+          "default": "You are Daisy, a coding agent inside VS Code, working in the user's open folder.\nUse the tools to inspect and change files rather than guessing or asking for pasted code.\nPaths are relative to the workspace root.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Instructions sent ahead of every message. Applies to existing chats too, since it is not stored in their history. Empty falls back to the default."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "daisy.editSystemPrompt",
+        "title": "Daisy: Edit System Prompt"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",

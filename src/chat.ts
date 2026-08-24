@@ -26,11 +26,7 @@ type FromView =
   | { type: 'ready' }
   | { type: 'cancel' };
 
-const SYSTEM = [
-  "You are Daisy, a coding agent inside VS Code, working in the user's open folder.",
-  'Use the tools to inspect and change files rather than guessing or asking for pasted code.',
-  'Paths are relative to the workspace root. Keep replies short.',
-].join('\n');
+const DEFAULT_SYSTEM = "You are Daisy, a coding agent inside VS Code, working in the user's open folder.\nUse the tools to inspect and change files rather than guessing or asking for pasted code.\nPaths are relative to the workspace root.";
 
 const FILE_BLOCK = /<file path="[^"]*">[\s\S]*?<\/file>\n\n/g;
 
@@ -44,7 +40,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
   constructor(ext: vscode.Uri, store: Store) {
     this.ext = ext;
-    this.sessions = new Sessions(store, SYSTEM);
+    this.sessions = new Sessions(store);
     this.session = this.sessions.active();
   }
 
@@ -100,7 +96,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { cfg } = settings();
+    const { cfg, system } = settings();
     const controller = new AbortController();
     this.active = controller;
 
@@ -112,6 +108,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       const deps = {
         cfg,
         root,
+        system,
         signal: controller.signal,
         onWait: (seconds: number) =>
           post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
@@ -225,6 +222,7 @@ function settings(): {
   endpoints: Endpoint[];
   active: ModelRef;
   cfg: LlmConfig;
+  system: string;
 } {
   const c = vscode.workspace.getConfiguration('daisy');
   const endpoints = c.get<Endpoint[]>('endpoints', []);
@@ -238,5 +236,6 @@ function settings(): {
     endpoints: usable,
     active: { endpoint: chosen.name, model },
     cfg: { baseUrl: chosen.baseUrl, model, apiKey: chosen.apiKey ?? '' },
+    system: c.get<string>('systemPrompt', '').trim() || DEFAULT_SYSTEM,
   };
 }

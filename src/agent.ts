@@ -10,6 +10,7 @@ export type AgentEvent =
 export interface AgentDeps {
   cfg: LlmConfig;
   root: string;
+  system: string;
   signal: AbortSignal;
   onWait?: (seconds: number) => void;
 }
@@ -21,7 +22,12 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
     let text = '';
     let calls: ToolCall[] = [];
 
-    for await (const chunk of stream(deps.cfg, messages, SPECS, deps.signal, deps.onWait)) {
+    const sent: Message[] = [
+      { role: 'system', content: deps.system },
+      ...messages.filter((m) => m.role !== 'system'),
+    ];
+
+    for await (const chunk of stream(deps.cfg, sent, SPECS, deps.signal, deps.onWait)) {
       if (chunk.kind === 'text') {
         text += chunk.text;
         yield { kind: 'text', text: chunk.text };

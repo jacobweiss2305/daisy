@@ -19,11 +19,9 @@ const KEEP = 30;
 
 export class Sessions {
   private readonly store: Store;
-  private readonly system: string;
 
-  constructor(store: Store, system: string) {
+  constructor(store: Store) {
     this.store = store;
-    this.system = system;
   }
 
   list(): Session[] {
@@ -40,7 +38,7 @@ export class Sessions {
     const session: Session = {
       id: randomUUID(),
       title: 'New chat',
-      messages: [{ role: 'system', content: this.system }],
+      messages: [],
     };
     void this.store.update(ALL, [session, ...this.list()].slice(0, KEEP));
     void this.store.update(ACTIVE, session.id);

@@ -83,6 +83,15 @@ which took about three and a half minutes for a bf16 27B. Daisy retries `502`,
 been waiting. Every other status fails immediately, so a real error still
 surfaces at once.
 
+## The system prompt
+
+`daisy.systemPrompt` is yours to change. `Daisy: Edit System Prompt` in the
+command palette opens it in a multi-line editor.
+
+It is not stored in a chat's history, it is prepended to each request, so an edit
+applies to every existing chat immediately rather than only to new ones. Blank it
+to fall back to the default.
+
 ## Using the panel
 
 **Chats.** The top dropdown switches between conversations and New starts a fresh
