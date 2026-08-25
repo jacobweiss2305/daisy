@@ -77,8 +77,8 @@
         },
         "daisy.model": {
           "type": "string",
-          "default": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
-          "description": "Model identifier passed to the endpoint."
+          "default": "",
+          "description": "Model in use. Set from the active endpoint; not edited by hand."
         },
         "daisy.systemPrompt": {
           "type": "string",
