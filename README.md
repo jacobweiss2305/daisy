@@ -141,6 +141,11 @@ repo with a clean tree so `git diff` and `git checkout .` are available.
 | `daisy.fileSearchLimit` | 3000 | Files offered to `@` autocomplete |
 | `daisy.sessionsKept` | 30 | Chats kept before the oldest are dropped |
 | `daisy.warmupTimeout` | 300 | Seconds to retry an endpoint that is starting |
+| `daisy.telemetry.enabled` | false | Send each turn as a rollout trace |
+| `daisy.telemetry.apiKey` | | Zero Proof key, or `ZEROPROOF_API_KEY` |
+| `daisy.telemetry.baseUrl` | the gate | Where traces are posted |
+| `daisy.telemetry.dataset` | `daisy` | Dataset prefix, one per workspace |
+| `daisy.telemetry.maxAttrBytes` | 32768 | Largest span attribute before clipping |
 
 The four size and time limits are the ones that quietly change answers rather
 than failing: a clipped file reads as a whole file to the model, and a killed
@@ -158,6 +163,8 @@ agent.ts           the loop: stream, run tools, feed results back
 llm.ts             SSE parsing, tool call assembly, reasoning split, model lists
 tools.ts           tool definitions, the workspace path guard, @ expansion
 sessions.ts        chat storage, pruning, titles
+otel.ts            optional rollout telemetry, off by default
+extension.ts       activation and the command
 media/main.js      panel behaviour
 media/markdown.js  the reply renderer
 ```
@@ -185,10 +192,13 @@ npm test
 ```
 
 Node 24 runs the TypeScript directly, so there is no test framework to install.
-45 tests cover the parts that are not obviously correct by reading them: SSE
+60 tests cover the parts that are not obviously correct by reading them: SSE
 delta reassembly, splitting reasoning out of the token stream, cold-start retry,
-the path guard, mention expansion, chat storage and pruning, and the markdown
-renderer.
+the path guard, mention expansion, chat storage and pruning, the markdown
+renderer, and the telemetry envelope.
+
+One test skips unless the ZeroProof repo is checked out beside this one, where it
+round-trips a trace through the real gate parser instead of a copy of it.
 
 The renderer is browser code, so its tests load `media/markdown.js` through a
 small DOM shim and exercise the shipped file rather than a copy.
@@ -196,6 +206,22 @@ small DOM shim and exercise the shipped file rather than a copy.
 That choice constrains the syntax. Node's strip-only mode rejects TypeScript
 parameter properties, so constructors assign their fields explicitly. esbuild
 would accept them; `node --test` will not.
+
+## Telemetry
+
+Off unless you turn it on. Nothing leaves the machine until you set
+`daisy.telemetry.enabled` and supply your own key, in settings or through
+`ZEROPROOF_API_KEY`.
+
+With it on, each turn is recorded as one OTLP/HTTP JSON trace: an agent root
+span carrying the prompt and final answer, a `chat` span per model call, and an
+`execute_tool` span per tool with its arguments and output. The Zero Proof gate
+flattens a trace into one rollout row per account, dataset, and UTC day, so a
+week of real sessions becomes a dataset you can mine for training tasks.
+
+Span attributes are clipped at `daisy.telemetry.maxAttrBytes`, and undelivered
+batches wait in a small in-memory outbox rather than retrying forever. Delivery
+is fire-and-forget: telemetry never blocks or fails a turn.
 
 ## Serving on Modal
 
