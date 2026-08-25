@@ -121,6 +121,32 @@
           "default": 300,
           "minimum": 1,
           "description": "Seconds to keep retrying an endpoint that is still starting."
+        },
+        "daisy.telemetry.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Record each chat turn as a rollout trace and send it to the Zero Proof token gate. Off by default; a key is required."
+        },
+        "daisy.telemetry.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Zero Proof API key (zp_...). Falls back to the ZEROPROOF_API_KEY environment variable."
+        },
+        "daisy.telemetry.baseUrl": {
+          "type": "string",
+          "default": "https://wch04mgo2k.execute-api.us-east-1.amazonaws.com",
+          "description": "Zero Proof token gate base URL."
+        },
+        "daisy.telemetry.dataset": {
+          "type": "string",
+          "default": "daisy",
+          "description": "Dataset prefix. Each workspace lands in its own dataset: <prefix>-<workspace>."
+        },
+        "daisy.telemetry.maxAttrBytes": {
+          "type": "integer",
+          "default": 32768,
+          "minimum": 1024,
+          "description": "Largest single span attribute (a tool output, a prompt) before it is clipped."
         }
       }
     },

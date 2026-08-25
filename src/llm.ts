@@ -15,6 +15,11 @@ export type Message =
   | { role: 'assistant'; content: string; tool_calls?: WireToolCall[] }
   | { role: 'tool'; content: string; tool_call_id: string };
 
+export interface LlmUsage {
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+}
+
 export type Chunk =
   | { kind: 'text'; text: string }
   | { kind: 'think'; text: string }
@@ -66,7 +71,13 @@ export async function* stream(
   const think = new ThinkFilter();
 
   for await (const frame of sse(res.body)) {
-    const delta = parseDelta(frame);
+    const parsed = parseFrame(frame);
+    if (!parsed) continue;
+
+    const reported = usageOf(parsed.usage);
+    if (reported) opts.onUsage?.(reported);
+
+    const delta = parsed.choices?.[0]?.delta;
     if (!delta) continue;
 
     if (delta.reasoning_content) yield { kind: 'think', text: delta.reasoning_content };
@@ -110,12 +121,35 @@ interface Delta {
   }[];
 }
 
-function parseDelta(frame: string): Delta | undefined {
+interface Frame {
+  choices?: { delta?: Delta }[] | null;
+  usage?: {
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    count_prompt?: number | null;
+    count_completion?: number | null;
+  } | null;
+}
+
+function parseFrame(frame: string): Frame | undefined {
   try {
-    return JSON.parse(frame)?.choices?.[0]?.delta;
+    const parsed: unknown = JSON.parse(frame);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Frame) : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** vLLM-style `usage` fields, Ollama's `count_*` fields, or nothing. */
+function usageOf(usage: Frame['usage']): LlmUsage | undefined {
+  if (!usage) return undefined;
+
+  const input = usage.prompt_tokens ?? usage.count_prompt;
+  const output = usage.completion_tokens ?? usage.count_completion;
+  const out: LlmUsage = {};
+  if (typeof input === 'number') out.inputTokens = input;
+  if (typeof output === 'number') out.outputTokens = output;
+  return Object.keys(out).length ? out : undefined;
 }
 
 async function* sse(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -268,6 +302,8 @@ export interface StreamOptions {
   /** How long to keep retrying a cold endpoint before giving up. */
   warmupMs?: number | undefined;
   onWait?: ((seconds: number) => void) | undefined;
+  /** Token counts as the server reports them; not every server sends them. */
+  onUsage?: ((usage: LlmUsage) => void) | undefined;
 }
 
 async function send(

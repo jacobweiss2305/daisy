@@ -7,6 +7,27 @@ export type AgentEvent =
   | { kind: 'tool'; call: ToolCall }
   | { kind: 'result'; id: string; output: string; failed: boolean };
 
+export interface LlmObservation {
+  model: string;
+  startedMs: number;
+  durationMs: number;
+  inputMessages: Message[];
+  outputText: string;
+  toolCalls: ToolCall[];
+  usage?: { inputTokens?: number | undefined; outputTokens?: number | undefined } | undefined;
+  status: 'ok' | 'error';
+  error?: string | undefined;
+}
+
+export interface ToolObservation {
+  name: string;
+  startedMs: number;
+  durationMs: number;
+  args: string;
+  output: string;
+  failed: boolean;
+}
+
 export interface AgentDeps {
   cfg: LlmConfig;
   root: string;
@@ -15,6 +36,9 @@ export interface AgentDeps {
   signal: AbortSignal;
   warmupMs?: number | undefined;
   onWait?: ((seconds: number) => void) | undefined;
+  onObserve?:
+    | ((event: { kind: 'llm'; observation: LlmObservation } | { kind: 'tool'; observation: ToolObservation }) => void)
+    | undefined;
 }
 
 /** Streams one turn to completion, appending every exchange to `messages`.
@@ -23,22 +47,61 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
   for (;;) {
     let text = '';
     let calls: ToolCall[] = [];
+    let usage: { inputTokens?: number | undefined; outputTokens?: number | undefined } | undefined;
 
     const sent: Message[] = [
       { role: 'system', content: deps.system },
       ...messages.filter((m) => m.role !== 'system'),
     ];
 
-    for await (const chunk of stream(deps.cfg, sent, SPECS, deps.signal, { warmupMs: deps.warmupMs, onWait: deps.onWait })) {
-      if (chunk.kind === 'text') {
-        text += chunk.text;
-        yield { kind: 'text', text: chunk.text };
-      } else if (chunk.kind === 'think') {
-        yield { kind: 'think', text: chunk.text };
-      } else {
-        calls = chunk.calls;
+    const llmStarted = Date.now();
+    try {
+      for await (const chunk of stream(deps.cfg, sent, SPECS, deps.signal, {
+        warmupMs: deps.warmupMs,
+        onWait: deps.onWait,
+        onUsage: (u) => {
+          usage = u;
+        },
+      })) {
+        if (chunk.kind === 'text') {
+          text += chunk.text;
+          yield { kind: 'text', text: chunk.text };
+        } else if (chunk.kind === 'think') {
+          yield { kind: 'think', text: chunk.text };
+        } else {
+          calls = chunk.calls;
+        }
       }
+    } catch (e) {
+      deps.onObserve?.({
+        kind: 'llm',
+        observation: {
+          model: deps.cfg.model,
+          startedMs: llmStarted,
+          durationMs: Date.now() - llmStarted,
+          inputMessages: sent,
+          outputText: text,
+          toolCalls: calls,
+          usage,
+          status: 'error',
+          error: (e as Error).message,
+        },
+      });
+      throw e;
     }
+    deps.onObserve?.({
+      kind: 'llm',
+      observation: {
+        model: deps.cfg.model,
+        startedMs: llmStarted,
+        durationMs: Date.now() - llmStarted,
+        inputMessages: sent,
+        outputText: text,
+        toolCalls: calls,
+        usage,
+        status: 'ok',
+      },
+    });
 
     messages.push(
       calls.length
@@ -50,7 +113,19 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
 
     for (const call of calls) {
       yield { kind: 'tool', call };
+      const toolStarted = Date.now();
       const { output, failed } = await execute(call, deps);
+      deps.onObserve?.({
+        kind: 'tool',
+        observation: {
+          name: call.name,
+          startedMs: toolStarted,
+          durationMs: Date.now() - toolStarted,
+          args: call.args,
+          output,
+          failed,
+        },
+      });
       messages.push({ role: 'tool', content: output, tool_call_id: call.id });
       yield { kind: 'result', id: call.id, output, failed };
     }

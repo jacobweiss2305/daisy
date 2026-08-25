@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import { run, type AgentEvent } from './agent.ts';
+import { run, type AgentDeps, type AgentEvent } from './agent.ts';
 import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
+import { GATE_URL, OtelClient, TurnTrace, datasetFor, resolveOtel, spanId } from './otel.ts';
+import type { OtelConfig } from './otel.ts';
 
 type ToView =
   | { type: 'text'; text: string }
@@ -39,12 +41,14 @@ export class ChatView implements vscode.WebviewViewProvider {
 
   private readonly ext: vscode.Uri;
   private readonly sessions: Sessions;
+  private readonly otel: OtelClient;
   private session: Session;
   private active: AbortController | undefined;
 
-  constructor(ext: vscode.Uri, store: Store) {
+  constructor(ext: vscode.Uri, store: Store, otel: OtelClient) {
     this.ext = ext;
     this.sessions = new Sessions(store, settings().sessionsKept);
+    this.otel = otel;
     this.session = this.sessions.active();
   }
 
@@ -125,12 +129,22 @@ export class ChatView implements vscode.WebviewViewProvider {
     const controller = new AbortController();
     this.active = controller;
 
-    this.session.messages.push({ role: 'user', content: await expandMentions(text, { root, limits }) });
+    const userContent = await expandMentions(text, { root, limits });
+    this.session.messages.push({ role: 'user', content: userContent });
     this.sessions.save(this.session);
     this.sendSessions(webview);
 
+    // One chat turn becomes one OTel trace, recorded as it happens and
+    // handed to the gate when the turn ends. Off unless opted in.
+    const telemetry = otelConfig();
+    this.otel.updateConfig(telemetry);
+    const turnNumber = this.session.messages.filter((m) => m.role === 'user').length;
+    const trace = telemetry.enabled
+      ? new TurnTrace(`${this.session.id}:${turnNumber}`, userContent, telemetry.maxAttrBytes)
+      : undefined;
+
     try {
-      const deps = {
+      const deps: AgentDeps = {
         cfg,
         root,
         system,
@@ -139,14 +153,20 @@ export class ChatView implements vscode.WebviewViewProvider {
         signal: controller.signal,
         onWait: (seconds: number) =>
           post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
+        onObserve: (e) => {
+          if (!trace) return;
+          if (e.kind === 'llm') trace.llm(spanId(), e.observation);
+          else trace.tool(spanId(), e.observation);
+        },
       };
       for await (const event of run(this.session.messages, deps)) post(project(event));
     } catch (e) {
-      const reason = controller.signal.aborted ? 'Cancelled.' : (e as Error).message;
+      const reason = controller.signal.aborted ? 'Cancelled.' : (e as unknown as Error).message;
       post({ type: 'status', text: reason });
     } finally {
       this.active = undefined;
       this.sessions.save(this.session);
+      if (trace) this.otel.submit(trace.body(datasetFor(telemetry, root)));
       post({ type: 'done' });
     }
   }
@@ -283,6 +303,18 @@ function project(event: AgentEvent): ToView {
 }
 
 const FALLBACK: Endpoint = { name: 'ollama', baseUrl: 'http://localhost:11434/v1', apiKey: '' };
+
+/** Telemetry as the user has it set, re-read every turn so toggling it needs no reload. */
+function otelConfig(): OtelConfig {
+  const c = vscode.workspace.getConfiguration('daisy.telemetry');
+  return resolveOtel({
+    enabled: c.get('enabled', false),
+    apiKey: c.get('apiKey', ''),
+    baseUrl: c.get('baseUrl', GATE_URL),
+    dataset: c.get('dataset', 'daisy'),
+    maxAttrBytes: c.get('maxAttrBytes', 32768),
+  });
+}
 
 function settings(): {
   endpoints: Endpoint[];
