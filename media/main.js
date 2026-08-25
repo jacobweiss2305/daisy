@@ -28,6 +28,7 @@ let openThink = null;
 let openRaw = '';
 let frame = 0;
 let busy = false;
+let follow = true;
 let endpoints = [];
 let activeEndpoint = '';
 let systemPrompt = '';
@@ -68,6 +69,7 @@ form.addEventListener('submit', (event) => {
   if (!text) return;
 
   say('user', 'You').textContent = text;
+  follow = true;
   prompt.value = '';
   grow();
   hideMentions();
@@ -187,8 +189,25 @@ window.addEventListener('message', ({ data }) => {
       break;
   }
 
-  log.scrollTop = log.scrollHeight;
+  stick();
 });
+
+const NEAR = 40;
+
+function atBottom() {
+  return log.scrollHeight - log.scrollTop - log.clientHeight < NEAR;
+}
+
+/** Scrolling up during generation means you want to read, so stop chasing. */
+log.addEventListener('scroll', () => {
+  follow = atBottom();
+  jump.hidden = follow;
+});
+
+function stick() {
+  if (follow) log.scrollTop = log.scrollHeight;
+  jump.hidden = follow;
+}
 
 /** A turn: small role label above the content. */
 function say(role, who) {
@@ -326,7 +345,7 @@ function draw() {
   frame = requestAnimationFrame(() => {
     frame = 0;
     if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
-    log.scrollTop = log.scrollHeight;
+    stick();
   });
 }
 
@@ -642,6 +661,18 @@ function grow() {
   prompt.style.height = 'auto';
   prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`;
 }
+
+const jump = document.createElement('button');
+jump.type = 'button';
+jump.id = 'jump';
+jump.hidden = true;
+jump.title = 'Jump to latest';
+jump.textContent = '↓';
+jump.addEventListener('click', () => {
+  follow = true;
+  stick();
+});
+form.append(jump);
 
 blank();
 grow();

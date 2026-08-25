@@ -93,6 +93,10 @@ of assigning HTML, so markup in a reply is text and there is nothing to sanitise
 Rendering is coalesced to one pass per animation frame, so a long reply does not
 reparse on every token.
 
+**Scrolling.** The transcript follows new output only while you are already at
+the bottom. Scroll up mid-generation and it stays where you put it, with a jump
+button to return.
+
 **Activity.** Tool calls read as a line rather than a JSON dump: `Read
 src/agent.ts`, `$ npm test`. Click one to see its output. A failed call opens its
 output rather than hiding the error behind a click.

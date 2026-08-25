@@ -643,3 +643,24 @@ button.title svg {
 
 .endpoint .use input { margin: 0; }
 .endpoint .use span { text-transform: none; letter-spacing: 0; font-size: 1em; }
+
+#jump {
+  position: absolute;
+  right: 14px;
+  bottom: calc(100% - 2px);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--vscode-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 30%);
+  font-size: 0.95em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#jump:hover { background: var(--vscode-input-background); }
