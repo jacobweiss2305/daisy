@@ -35,6 +35,9 @@ export interface AgentDeps {
   limits: Limits;
   signal: AbortSignal;
   warmupMs?: number | undefined;
+  /** Bound on tool rounds. When reached, the model is called once more without
+   *  tools so it can give a final answer instead of looping. */
+  maxLoops?: number | undefined;
   onWait?: ((seconds: number) => void) | undefined;
   onObserve?:
     | ((event: { kind: 'llm'; observation: LlmObservation } | { kind: 'tool'; observation: ToolObservation }) => void)
@@ -44,10 +47,13 @@ export interface AgentDeps {
 /** Streams one turn to completion, appending every exchange to `messages`.
  *  Runs until the model stops calling tools; cancel with the abort signal. */
 export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator<AgentEvent> {
+  let loops = 0;
   for (;;) {
     let text = '';
     let calls: ToolCall[] = [];
     let usage: { inputTokens?: number | undefined; outputTokens?: number | undefined } | undefined;
+
+    const withTools = deps.maxLoops == null || loops < deps.maxLoops;
 
     const sent: Message[] = [
       { role: 'system', content: deps.system },
@@ -56,7 +62,7 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
 
     const llmStarted = Date.now();
     try {
-      for await (const chunk of stream(deps.cfg, sent, SPECS, deps.signal, {
+      for await (const chunk of stream(deps.cfg, sent, withTools ? SPECS : [], deps.signal, {
         warmupMs: deps.warmupMs,
         onWait: deps.onWait,
         onUsage: (u) => {
@@ -109,7 +115,9 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
         : { role: 'assistant', content: text },
     );
 
-    if (!calls.length) return;
+    // A server that returns tool calls when none were offered is misbehaving;
+    // end the turn rather than act on them.
+    if (!calls.length || !withTools) return;
 
     for (const call of calls) {
       yield { kind: 'tool', call };
@@ -129,6 +137,7 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
       messages.push({ role: 'tool', content: output, tool_call_id: call.id });
       yield { kind: 'result', id: call.id, output, failed };
     }
+    loops += 1;
   }
 }
 

@@ -5,6 +5,7 @@ import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts'
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
 import { OtelClient, TurnTrace, parseHeaders, resolveOtel, resourceFor, spanId } from './otel.ts';
+import { judgeTurn, resolveJudge, type JudgeSettings } from './judge.ts';
 import type { OtelConfig } from './otel.ts';
 
 type ToView =
@@ -179,6 +180,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
     const userContent = await expandMentions(text, { root, limits });
     chat.messages.push({ role: 'user', content: userContent });
+    const turnStart = chat.messages.length;
     this.sessions.save(chat);
     this.sendSessions(webview);
 
@@ -216,6 +218,35 @@ export class ChatView implements vscode.WebviewViewProvider {
       this.sessions.save(chat);
       this.sendSessions(webview);
       if (trace) this.otel.submit(trace.body(resourceFor(telemetry, root)));
+
+      // The verdict is scored against the turn's trace, so there must be one:
+      // telemetry has to be on. The judge runs on its own; by the time it runs
+      // the turn is over, and nothing here can fail the chat.
+      if (trace && !controller.signal.aborted) {
+        const judge = judgeConfig();
+        if (judge.enabled) {
+          const record = {
+            chatId: chat.id,
+            turnNumber,
+            userText: text,
+            messages: chat.messages.slice(turnStart),
+            traceId: trace.traceId,
+            model: cfg.model,
+          };
+          void judgeTurn(record, { cfg, root, limits, settings: judge })
+            .then((v) => {
+              if (!v) return;
+              const bits = [v.score != null ? `score ${v.score}` : '', v.summary].filter(Boolean);
+              try {
+                post({ type: 'status', text: `Judge: ${bits.join(', ') || 'no score in verdict'}` });
+              } catch {
+                // the view is gone; the verdict is still in the store
+              }
+            })
+            .catch(() => {});
+        }
+      }
+
       void this.otel.flush().then(() => this.sendTelemetry(webview));
       post({ type: 'done' });
     }
@@ -393,6 +424,21 @@ function otelConfig(): OtelConfig {
     serviceName: c.get('serviceName', 'daisy'),
     resourceAttributes: c.get('resourceAttributes', {}),
     maxAttrBytes: c.get('maxAttrBytes', 32768),
+  });
+}
+
+/** Judge settings, re-read per turn so toggling them needs no reload. */
+function judgeConfig(): JudgeSettings {
+  const c = vscode.workspace.getConfiguration('daisy.judge');
+  return resolveJudge({
+    enabled: c.get('enabled', false),
+    endpoint: c.get('endpoint', ''),
+    headers: c.get('headers', {}),
+    systemPrompt: c.get('systemPrompt', ''),
+    maxLoops: c.get('maxLoops', 12),
+    maxTranscriptBytes: c.get('maxTranscriptBytes', 128 * 1024),
+    source: c.get('source', 'daisy-judge'),
+    delayMs: c.get('delayMs', 5000),
   });
 }
 

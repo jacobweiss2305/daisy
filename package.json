@@ -158,6 +158,53 @@
             "type": "string"
           },
           "markdownDescription": "Extra resource attributes. `{workspace}` in a value becomes the folder name, so a backend that groups by dataset gets one per repo. Falls back to `OTEL_RESOURCE_ATTRIBUTES`."
+        },
+        "daisy.judge.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "After each completed turn, a judge model reviews it and posts a verdict to `daisy.judge.endpoint`. Requires telemetry to be on: the verdict is scored against the turn's trace."
+        },
+        "daisy.judge.endpoint": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL of the score store. Verdicts are POSTed as JSON to `<endpoint>/scores`. Falls back to `DAISY_JUDGE_ENDPOINT`. Empty turns judging off."
+        },
+        "daisy.judge.headers": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Headers sent with each verdict POST. Falls back to `DAISY_JUDGE_HEADERS`, which keeps credentials out of settings."
+        },
+        "daisy.judge.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "markdownDescription": "The judge's system prompt, the one instruction it gets: verify with tools, do not modify the workspace, end with a JSON verdict. Empty falls back to the built-in judge."
+        },
+        "daisy.judge.maxLoops": {
+          "type": "integer",
+          "default": 12,
+          "minimum": 1,
+          "description": "Most tool rounds the judge may run before it is forced to give its verdict."
+        },
+        "daisy.judge.maxTranscriptBytes": {
+          "type": "integer",
+          "default": 131072,
+          "minimum": 1024,
+          "description": "Largest turn transcript handed to the judge. Bigger turns are clipped; the judge can re-read anything with its tools."
+        },
+        "daisy.judge.source": {
+          "type": "string",
+          "default": "daisy-judge",
+          "description": "Attribution stored with each verdict, so it can be told apart from a human label or another judge."
+        },
+        "daisy.judge.delayMs": {
+          "type": "integer",
+          "default": 5000,
+          "minimum": 0,
+          "description": "Wait this long after the turn before the first verdict send, so the turn's own trace lands first."
         }
       }
     },
