@@ -37,6 +37,10 @@ Defaults assume Ollama on `localhost:11434`:
 ollama pull hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL
 ```
 
+The gear in the panel header edits endpoints directly: name, base URL, and API
+key, with add and remove. `daisy.endpoints` holds objects, so the settings UI
+falls back to raw JSON for it, which is why the panel has its own form.
+
 Daisy talks to several servers at once. `daisy.endpoints` is a list, and the
 dropdown shows every model from every reachable one, labelled by endpoint when
 more than one answers. Picking one writes both `daisy.endpoint` and `daisy.model`,

@@ -9,6 +9,8 @@ const refresh = document.getElementById('refresh');
 const session = document.getElementById('session');
 const startNew = document.getElementById('new');
 const mentions = document.getElementById('mentions');
+const gear = document.getElementById('gear');
+const settings = document.getElementById('settings');
 
 const SEEDS = [
   'What does this project do?',
@@ -26,9 +28,16 @@ let openThink = null;
 let openRaw = '';
 let frame = 0;
 let busy = false;
+let endpoints = [];
 
 refresh.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 startNew.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+
+gear.addEventListener('click', () => {
+  settings.hidden = !settings.hidden;
+  log.hidden = !settings.hidden;
+  if (!settings.hidden) renderSettings();
+});
 session.addEventListener('change', () => vscode.postMessage({ type: 'session', id: session.value }));
 
 model.addEventListener('change', () => {
@@ -150,6 +159,11 @@ window.addEventListener('message', ({ data }) => {
 
     case 'files':
       files = data.items;
+      break;
+
+    case 'endpoints':
+      endpoints = data.items.map((e) => ({ ...e }));
+      if (!settings.hidden) renderSettings();
       break;
 
     case 'done':
@@ -407,6 +421,83 @@ function fill(select, entries, selected, empty) {
       return option;
     }),
   );
+}
+
+/** Endpoints are objects, so the settings UI would otherwise be raw JSON. */
+function renderSettings() {
+  settings.replaceChildren();
+
+  const title = document.createElement('h2');
+  title.textContent = 'Endpoints';
+  settings.append(title);
+
+  const note = document.createElement('p');
+  note.textContent = 'Any server speaking the OpenAI chat API. Leave the key empty for local ones.';
+  settings.append(note);
+
+  endpoints.forEach((endpoint, i) => {
+    const card = document.createElement('div');
+    card.className = 'endpoint';
+
+    for (const [key, label, type] of [
+      ['name', 'Name', 'text'],
+      ['baseUrl', 'Base URL', 'text'],
+      ['apiKey', 'API key', 'password'],
+    ]) {
+      const field = document.createElement('label');
+
+      const caption = document.createElement('span');
+      caption.textContent = label;
+
+      const input = document.createElement('input');
+      input.type = type;
+      input.value = endpoint[key] ?? '';
+      input.placeholder = key === 'baseUrl' ? 'https://host/v1' : '';
+      input.addEventListener('input', () => {
+        endpoints[i][key] = input.value;
+      });
+
+      field.append(caption, input);
+      card.append(field);
+    }
+
+    const drop = document.createElement('button');
+    drop.type = 'button';
+    drop.className = 'quiet';
+    drop.textContent = 'Remove';
+    drop.addEventListener('click', () => {
+      endpoints.splice(i, 1);
+      renderSettings();
+    });
+
+    card.append(drop);
+    settings.append(card);
+  });
+
+  const row = document.createElement('div');
+  row.className = 'actions';
+
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'quiet';
+  add.textContent = 'Add endpoint';
+  add.addEventListener('click', () => {
+    endpoints.push({ name: '', baseUrl: '', apiKey: '' });
+    renderSettings();
+  });
+
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'primary';
+  save.textContent = 'Save';
+  save.addEventListener('click', () => {
+    vscode.postMessage({ type: 'saveEndpoints', items: endpoints });
+    settings.hidden = true;
+    log.hidden = false;
+  });
+
+  row.append(add, save);
+  settings.append(row);
 }
 
 function setBusy(value) {

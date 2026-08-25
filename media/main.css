@@ -1,5 +1,8 @@
 * { box-sizing: border-box; }
 
+/* An id selector outranks [hidden], so say it explicitly. */
+[hidden] { display: none !important; }
+
 :root {
   --gap: 10px;
   --radius: 10px;
@@ -422,3 +425,76 @@ button.quiet:hover { color: var(--vscode-foreground); background: var(--sunken);
 }
 
 .msg.assistant a { color: var(--vscode-textLink-foreground); }
+
+#settings {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+}
+
+#settings h2 {
+  margin: 0 0 4px;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+#settings > p {
+  margin: 0 0 14px;
+  font-size: 0.88em;
+  line-height: 1.5;
+  color: var(--quiet);
+}
+
+.endpoint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: var(--sunken);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+}
+
+.endpoint label { display: flex; flex-direction: column; gap: 3px; }
+
+.endpoint label span {
+  font-size: 0.76em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+.endpoint input {
+  padding: 6px 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+
+.endpoint input:focus { border-color: var(--vscode-focusBorder); }
+.endpoint button.quiet { align-self: flex-start; }
+
+#settings .actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+button.primary {
+  padding: 6px 14px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: none;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+button.primary:hover { background: var(--vscode-button-hoverBackground); }

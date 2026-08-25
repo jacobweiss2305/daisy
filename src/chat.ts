@@ -15,6 +15,7 @@ type ToView =
   | { type: 'sessions'; items: { id: string; title: string }[]; active: string }
   | { type: 'history'; items: { role: 'user' | 'assistant'; text: string }[] }
   | { type: 'files'; items: string[] }
+  | { type: 'endpoints'; items: Endpoint[] }
   | { type: 'done' };
 
 type FromView =
@@ -23,6 +24,7 @@ type FromView =
   | { type: 'session'; id: string }
   | { type: 'new' }
   | { type: 'refresh' }
+  | { type: 'saveEndpoints'; items: Endpoint[] }
   | { type: 'ready' }
   | { type: 'cancel' };
 
@@ -55,6 +57,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       case 'ready':
         this.sendSessions(webview);
         this.sendHistory(webview);
+        this.sendEndpoints(webview);
         void this.sendModels(webview);
         void this.sendFiles(webview);
         break;
@@ -80,6 +83,17 @@ export class ChatView implements vscode.WebviewViewProvider {
       case 'refresh':
         void this.sendModels(webview);
         break;
+      case 'saveEndpoints': {
+        const clean = message.items.filter((e) => e.name.trim() && e.baseUrl.trim());
+        void vscode.workspace
+          .getConfiguration('daisy')
+          .update('endpoints', clean, vscode.ConfigurationTarget.Global)
+          .then(() => {
+            this.sendEndpoints(webview);
+            return this.sendModels(webview);
+          });
+        break;
+      }
       case 'cancel':
         this.active?.abort();
         break;
@@ -146,6 +160,13 @@ export class ChatView implements vscode.WebviewViewProvider {
     void webview.postMessage({ type: 'history', items } satisfies ToView);
   }
 
+  private sendEndpoints(webview: vscode.Webview): void {
+    void webview.postMessage({
+      type: 'endpoints',
+      items: settings().endpoints,
+    } satisfies ToView);
+  }
+
   private async sendFiles(webview: vscode.Webview): Promise<void> {
     const uris = await vscode.workspace.findFiles(
       '**/*',
@@ -188,9 +209,13 @@ export class ChatView implements vscode.WebviewViewProvider {
   <button id="new" class="icon" type="button" title="New chat" aria-label="New chat">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
   </button>
+  <button id="gear" class="icon" type="button" title="Endpoints" aria-label="Endpoints">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3M12.5 12.5l-1.3-1.3M4.8 4.8 3.5 3.5"/></svg>
+  </button>
 </header>
 
 <div id="log"></div>
+<div id="settings" hidden></div>
 
 <form id="composer">
   <div id="mentions" hidden></div>
