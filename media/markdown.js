@@ -7,6 +7,8 @@ const BULLET = /^\s*[-*+]\s+(.*)$/;
 const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
 const QUOTE = /^>\s?(.*)$/;
 const RULE = /^(?:---+|\*\*\*+|___+)\s*$/;
+const ROW = /^\s*\|.*$/;
+const SEP_CELL = /^:?-+:?$/;
 
 const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\([^)\s]+\))/g;
 const LINK = /^\[([^\]]+)\]\((.+)\)$/;
@@ -29,6 +31,21 @@ function renderMarkdown(source) {
       }
       at += 1;
       out.append(codeBlock(body.join('\n'), fence[1]));
+      continue;
+    }
+
+    if (ROW.test(line) && at + 1 < lines.length && isSeparator(lines[at + 1])) {
+      const header = cellsOf(line);
+      const aligns = cellsOf(lines[at + 1]).map(alignOf);
+      at += 2;
+
+      const body = [];
+      while (at < lines.length && ROW.test(lines[at])) {
+        body.push(cellsOf(lines[at]));
+        at += 1;
+      }
+
+      out.append(table(header, aligns, body));
       continue;
     }
 
@@ -97,6 +114,7 @@ function renderMarkdown(source) {
 
 function blockStart(line) {
   return (
+    ROW.test(line) ||
     FENCE.test(line) ||
     HEADING.test(line) ||
     RULE.test(line) ||
@@ -104,6 +122,61 @@ function blockStart(line) {
     BULLET.test(line) ||
     NUMBERED.test(line)
   );
+}
+
+/** `| a | b |` without the outer pipes, trimmed. */
+function cellsOf(line) {
+  let rest = line.trim();
+  if (rest.startsWith('|')) rest = rest.slice(1);
+  if (rest.endsWith('|')) rest = rest.slice(0, -1);
+  return rest.split('|').map((cell) => cell.trim());
+}
+
+function isSeparator(line) {
+  if (!ROW.test(line)) return false;
+  const cells = cellsOf(line);
+  return cells.length > 0 && cells.every((cell) => SEP_CELL.test(cell));
+}
+
+function alignOf(cell) {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  return '';
+}
+
+function table(header, aligns, body) {
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap';
+
+  const el = document.createElement('table');
+
+  const head = document.createElement('thead');
+  head.append(rowOf(header, aligns, 'th'));
+  el.append(head);
+
+  if (body.length) {
+    const rows = document.createElement('tbody');
+    for (const cells of body) rows.append(rowOf(cells, aligns, 'td'));
+    el.append(rows);
+  }
+
+  wrap.append(el);
+  return wrap;
+}
+
+function rowOf(cells, aligns, tag) {
+  const row = document.createElement('tr');
+
+  cells.forEach((text, i) => {
+    const cell = document.createElement(tag);
+    if (aligns[i]) cell.style.textAlign = aligns[i];
+    inline(text, cell);
+    row.append(cell);
+  });
+
+  return row;
 }
 
 function codeBlock(text, language) {

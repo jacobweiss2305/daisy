@@ -664,3 +664,32 @@ button.title svg {
 }
 
 #jump:hover { background: var(--vscode-input-background); }
+
+.msg.assistant .table-wrap {
+  margin: 0 0 8px;
+  overflow-x: auto;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+}
+
+.msg.assistant table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.msg.assistant th,
+.msg.assistant td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--edge);
+}
+
+.msg.assistant th {
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--sunken);
+}
+
+.msg.assistant tbody tr:last-child td { border-bottom: none; }

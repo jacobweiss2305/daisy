@@ -88,7 +88,8 @@ of the answer and out of the message history, so it costs nothing on later turns
 Both conventions are handled: a `reasoning_content` field on the delta, and
 `<think>` tags inline in the content.
 
-**Formatting.** Replies render as markdown. The renderer builds DOM nodes instead
+**Formatting.** Replies render as markdown, including tables with column
+alignment. The renderer builds DOM nodes instead
 of assigning HTML, so markup in a reply is text and there is nothing to sanitise.
 Rendering is coalesced to one pass per animation frame, so a long reply does not
 reparse on every token.
@@ -179,7 +180,7 @@ npm test
 ```
 
 Node 24 runs the TypeScript directly, so there is no test framework to install.
-39 tests cover the parts that are not obviously correct by reading them: SSE
+45 tests cover the parts that are not obviously correct by reading them: SSE
 delta reassembly, splitting reasoning out of the token stream, cold-start retry,
 the path guard, mention expansion, chat storage and pruning, and the markdown
 renderer.

@@ -10,6 +10,7 @@ class Fake {
   dataset: Record<string, string> = {};
   className = '';
   href = '';
+  style: Record<string, string> = {};
 
   constructor(tag: string) {
     this.tag = tag;
@@ -88,4 +89,44 @@ test('does not swallow a paragraph that runs into a list', () => {
 
 test('renders an unterminated fence rather than dropping it', () => {
   assert.equal(md('```\nhalf written'), 'pre[code[half written]]');
+});
+
+const HEAD = '| File | What |\n| --- | --- |\n';
+
+test('renders a table with a header and body', () => {
+  assert.equal(
+    md(`${HEAD}| a.ts | new |\n| b.ts | hooks |`),
+    'div[table[thead[tr[th[File]th[What]]]tbody[tr[td[a.ts]td[new]]tr[td[b.ts]td[hooks]]]]]',
+  );
+});
+
+test('formats inside table cells', () => {
+  assert.equal(
+    md(`${HEAD}| \`src/otel.ts\` | **new** |`),
+    'div[table[thead[tr[th[File]th[What]]]tbody[tr[td[code[src/otel.ts]]td[strong[new]]]]]]',
+  );
+});
+
+test('honours column alignment', () => {
+  const root = render('| l | c | r |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |');
+  const table = root.children[0] as Fake;
+  const head = (table.children[0] as Fake).children[0] as Fake;
+  const cells = (head.children[0] as Fake).children as Fake[];
+
+  assert.deepEqual(
+    cells.map((c) => c.style.textAlign ?? ''),
+    ['', 'center', 'right'],
+  );
+});
+
+test('renders a header-only table', () => {
+  assert.equal(md(HEAD.trimEnd()), 'div[table[thead[tr[th[File]th[What]]]]]');
+});
+
+test('leaves pipes alone when no separator row follows', () => {
+  assert.equal(md('a | b | c'), 'p[a | b | c]');
+});
+
+test('does not treat a rule as a table separator', () => {
+  assert.equal(md('---'), 'hr[]');
 });
