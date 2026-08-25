@@ -693,6 +693,27 @@ button.title svg {
 
 .msg.assistant tbody tr:last-child td { border-bottom: none; }
 
+.endpoint .toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+}
+
+.endpoint .toggle input { margin: 0; }
+
+.endpoint .toggle span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 1em;
+  color: inherit;
+}
+
+.endpoint .status { font-size: 0.8em; color: var(--quiet); }
+.endpoint .status.on { color: var(--vscode-textLink-foreground); }
+
 button.stop {
   display: grid;
   place-items: center;

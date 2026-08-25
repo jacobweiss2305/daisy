@@ -34,6 +34,15 @@ const queue = [];
 let endpoints = [];
 let activeEndpoint = '';
 let systemPrompt = '';
+let telemetry = {
+  enabled: false,
+  active: '',
+  endpoint: '',
+  headers: '',
+  serviceName: 'daisy',
+  resourceAttributes: '',
+  pending: 0,
+};
 let chatList = [];
 let running = [];
 let activeChat = '';
@@ -235,6 +244,11 @@ window.addEventListener('message', ({ data }) => {
       endpoints = data.endpoints.map((e) => ({ ...e }));
       systemPrompt = data.systemPrompt;
       activeEndpoint = data.active;
+      if (!settings.hidden) renderSettings();
+      break;
+
+    case 'telemetry':
+      telemetry = data;
       if (!settings.hidden) renderSettings();
       break;
 
@@ -519,6 +533,8 @@ function renderSettings() {
   });
   settings.append(promptBox);
 
+  appendTelemetry(settings);
+
   const title = document.createElement('h2');
   title.textContent = 'Endpoints';
   settings.append(title);
@@ -614,12 +630,93 @@ function renderSettings() {
       endpoints,
       systemPrompt,
       active: activeEndpoint || endpoints[0]?.name || '',
+      telemetry: {
+        enabled: telemetry.enabled,
+        endpoint: telemetry.endpoint,
+        headers: telemetry.headers,
+        serviceName: telemetry.serviceName,
+        resourceAttributes: telemetry.resourceAttributes,
+      },
     });
     show('log');
   });
 
   row.append(add, save);
   settings.append(row);
+}
+
+/** Optional OTLP traces: where they go, and whether they are going. */
+function appendTelemetry(target) {
+  const title = document.createElement('h2');
+  title.textContent = 'Telemetry';
+  target.append(title);
+
+  const note = document.createElement('p');
+  note.textContent =
+    'Record each turn as an OTLP trace. Off by default; nothing leaves this machine until you turn it on and set an endpoint.';
+  target.append(note);
+
+  const card = document.createElement('div');
+  card.className = telemetry.enabled ? 'endpoint on' : 'endpoint';
+
+  const toggle = document.createElement('label');
+  toggle.className = 'toggle';
+
+  const on = document.createElement('input');
+  on.type = 'checkbox';
+  on.checked = telemetry.enabled;
+  on.addEventListener('change', () => {
+    telemetry.enabled = on.checked;
+    card.className = telemetry.enabled ? 'endpoint on' : 'endpoint';
+    refresh();
+  });
+
+  const toggleCaption = document.createElement('span');
+  toggleCaption.textContent = 'Record turns as traces';
+  toggle.append(on, toggleCaption);
+  card.append(toggle);
+
+  for (const [key, label, placeholder] of [
+    ['endpoint', 'Endpoint', 'https://host'],
+    ['headers', 'Headers', 'x-api-key=…'],
+    ['serviceName', 'Service name', 'daisy'],
+    ['resourceAttributes', 'Resource attributes', 'dataset=daisy-{workspace}'],
+  ]) {
+    const field = document.createElement('label');
+
+    const caption = document.createElement('span');
+    caption.textContent = label;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = telemetry[key] ?? '';
+    input.placeholder = placeholder;
+    input.addEventListener('input', () => {
+      telemetry[key] = input.value;
+      refresh();
+    });
+
+    field.append(caption, input);
+    card.append(field);
+  }
+
+  const status = document.createElement('div');
+  status.className = 'status';
+  card.append(status);
+
+  function refresh() {
+    const endpoint = telemetry.active || telemetry.endpoint.trim();
+    let text;
+    if (!telemetry.enabled) text = 'Off — nothing leaves this machine.';
+    else if (!endpoint) text = 'On, but no endpoint: set one here or OTEL_EXPORTER_OTLP_ENDPOINT.';
+    else text = 'Sending to ' + endpoint;
+    if (telemetry.enabled && telemetry.pending > 0) text += ' · ' + telemetry.pending + ' waiting to deliver';
+    status.textContent = text;
+    status.classList.toggle('on', telemetry.enabled && Boolean(endpoint));
+  }
+  refresh();
+
+  target.append(card);
 }
 
 /** Chats as a browsable list: recency groups, turn counts, delete on the row. */

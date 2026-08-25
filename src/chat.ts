@@ -4,7 +4,7 @@ import { run, type AgentDeps, type AgentEvent } from './agent.ts';
 import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
-import { OtelClient, TurnTrace, resolveOtel, resourceFor, spanId } from './otel.ts';
+import { OtelClient, TurnTrace, parseHeaders, resolveOtel, resourceFor, spanId } from './otel.ts';
 import type { OtelConfig } from './otel.ts';
 
 type ToView =
@@ -24,6 +24,16 @@ type ToView =
       active: string;
       running: string[];
     }
+  | {
+      type: 'telemetry';
+      enabled: boolean;
+      active: string;
+      endpoint: string;
+      headers: string;
+      serviceName: string;
+      resourceAttributes: string;
+      pending: number;
+    }
   | { type: 'done' };
 
 type FromView =
@@ -32,7 +42,15 @@ type FromView =
   | { type: 'session'; id: string }
   | { type: 'new' }
   | { type: 'refresh' }
-  | { type: 'saveConfig'; endpoints: Endpoint[]; systemPrompt: string; active: string }
+  | {
+      type: 'saveConfig';
+      endpoints: Endpoint[];
+      systemPrompt: string;
+      active: string;
+      telemetry?:
+        | { enabled: boolean; endpoint: string; headers: string; serviceName: string; resourceAttributes: string }
+        | undefined;
+    }
   | { type: 'deleteChat'; id: string }
   | { type: 'ready' }
   | { type: 'cancel' };
@@ -70,6 +88,7 @@ export class ChatView implements vscode.WebviewViewProvider {
         this.sendSessions(webview);
         this.sendHistory(webview);
         this.sendConfig(webview);
+        this.sendTelemetry(webview);
         void this.sendModels(webview);
         void this.sendFiles(webview);
         break;
@@ -94,16 +113,35 @@ export class ChatView implements vscode.WebviewViewProvider {
       }
       case 'refresh':
         void this.sendModels(webview);
+        this.sendTelemetry(webview);
         break;
       case 'saveConfig': {
         const clean = message.endpoints.filter((e) => e.name.trim() && e.baseUrl.trim());
         const config = vscode.workspace.getConfiguration('daisy');
+        const telemetry = message.telemetry ? vscode.workspace.getConfiguration('daisy.telemetry') : undefined;
         void config.update('systemPrompt', message.systemPrompt, vscode.ConfigurationTarget.Global);
         void config.update('endpoint', message.active, vscode.ConfigurationTarget.Global);
+        if (message.telemetry && telemetry) {
+          void telemetry.update('enabled', message.telemetry.enabled, vscode.ConfigurationTarget.Global);
+          void telemetry.update('endpoint', message.telemetry.endpoint.trim(), vscode.ConfigurationTarget.Global);
+          void telemetry.update('headers', parseHeaders(message.telemetry.headers), vscode.ConfigurationTarget.Global);
+          void telemetry.update(
+            'serviceName',
+            message.telemetry.serviceName.trim() || 'daisy',
+            vscode.ConfigurationTarget.Global,
+          );
+          void telemetry.update(
+            'resourceAttributes',
+            parseHeaders(message.telemetry.resourceAttributes),
+            vscode.ConfigurationTarget.Global,
+          );
+        }
         void config
           .update('endpoints', clean, vscode.ConfigurationTarget.Global)
           .then(() => {
+            this.otel.updateConfig(otelConfig());
             this.sendConfig(webview);
+            this.sendTelemetry(webview);
             return this.sendModels(webview);
           });
         break;
@@ -178,6 +216,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       this.sessions.save(chat);
       this.sendSessions(webview);
       if (trace) this.otel.submit(trace.body(resourceFor(telemetry, root)));
+      void this.otel.flush().then(() => this.sendTelemetry(webview));
       post({ type: 'done' });
     }
   }
@@ -220,6 +259,26 @@ export class ChatView implements vscode.WebviewViewProvider {
       endpoints,
       systemPrompt: system,
       active: active.endpoint,
+    } satisfies ToView);
+  }
+
+  /** The saved trace settings, plus the effective endpoint after env fallbacks, and what is queued. */
+  private sendTelemetry(webview: vscode.Webview): void {
+    const c = vscode.workspace.getConfiguration('daisy.telemetry');
+    const pairs = (obj: Record<string, string>): string =>
+      Object.entries(obj)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ');
+    const resolved = otelConfig();
+    void webview.postMessage({
+      type: 'telemetry',
+      enabled: c.get('enabled', false),
+      active: resolved.enabled ? resolved.endpoint : '',
+      endpoint: c.get('endpoint', ''),
+      headers: pairs(c.get<Record<string, string>>('headers', {})),
+      serviceName: c.get('serviceName', 'daisy'),
+      resourceAttributes: pairs(c.get<Record<string, string>>('resourceAttributes', {})),
+      pending: this.otel.pending,
     } satisfies ToView);
   }
 
