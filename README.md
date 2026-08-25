@@ -94,6 +94,14 @@ of assigning HTML, so markup in a reply is text and there is nothing to sanitise
 Rendering is coalesced to one pass per animation frame, so a long reply does not
 reparse on every token.
 
+**Workers.** Chats run in parallel. Start one, switch to another, and both keep
+going; the chat list marks who is working with a live dot, and the title carries
+one for the chat on screen. Output from a background chat is written into that
+chat and appears when you open it, so nothing bleeds across.
+
+Stop halts the chat you are looking at. Sending inside a chat that is already
+working queues behind it; sending in a different chat starts a second worker.
+
 **Queueing.** Send while she is working and the message waits its turn instead
 of interrupting, shown dimmed in the transcript with an X to drop it. Each one
 fires as the previous turn ends, so you can line up a run and walk away. Stop

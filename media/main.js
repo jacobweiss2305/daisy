@@ -35,6 +35,7 @@ let endpoints = [];
 let activeEndpoint = '';
 let systemPrompt = '';
 let chatList = [];
+let running = [];
 let activeChat = '';
 
 startNew.addEventListener('click', () => {
@@ -159,6 +160,10 @@ prompt.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('message', ({ data }) => {
+  // Another chat's worker is still streaming; its output is stored in that
+  // chat and shows when you open it.
+  if (data.chat && data.chat !== activeChat) return;
+
   switch (data.type) {
     case 'text':
       openThink = null;
@@ -201,8 +206,10 @@ window.addEventListener('message', ({ data }) => {
     case 'chats':
       chatList = data.items;
       activeChat = data.active;
+      running = data.running ?? [];
       titleText.textContent =
         data.items.find((c) => c.id === data.active)?.title ?? 'New chat';
+      setBusy(running.includes(activeChat));
       if (!chats.hidden) renderChats();
       break;
 
@@ -641,8 +648,14 @@ function renderChats() {
       chats.append(heading);
     }
 
+    const live = running.includes(chat.id);
+
     const row = document.createElement('div');
-    row.className = chat.id === activeChat ? 'chat on' : 'chat';
+    row.className = `chat${chat.id === activeChat ? ' on' : ''}${live ? ' live' : ''}`;
+
+    const state = document.createElement('span');
+    state.className = 'state';
+    state.title = live ? 'Working' : 'Idle';
 
     const text = document.createElement('div');
     text.className = 'text';
@@ -653,7 +666,9 @@ function renderChats() {
 
     const meta = document.createElement('div');
     meta.className = 'meta';
-    meta.textContent = `${chat.turns} ${chat.turns === 1 ? 'message' : 'messages'} · ${ago(chat.updatedAt)}`;
+    meta.textContent = live
+      ? 'working'
+      : `${chat.turns} ${chat.turns === 1 ? 'message' : 'messages'} · ${ago(chat.updatedAt)}`;
 
     text.append(name, meta);
 
@@ -667,7 +682,7 @@ function renderChats() {
       vscode.postMessage({ type: 'deleteChat', id: chat.id });
     });
 
-    row.append(text, drop);
+    row.append(state, text, drop);
     row.addEventListener('click', () => {
       vscode.postMessage({ type: 'session', id: chat.id });
     });
@@ -704,6 +719,7 @@ function ago(at) {
 function setBusy(value) {
   busy = value;
   document.body.classList.toggle('busy', value);
+  titleBtn.classList.toggle('running', value);
   stop.hidden = !value;
 }
 

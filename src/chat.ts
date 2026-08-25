@@ -18,7 +18,12 @@ type ToView =
   | { type: 'history'; items: { role: 'user' | 'assistant'; text: string }[] }
   | { type: 'files'; items: string[] }
   | { type: 'config'; endpoints: Endpoint[]; systemPrompt: string; active: string }
-  | { type: 'chats'; items: { id: string; title: string; updatedAt: number; turns: number }[]; active: string }
+  | {
+      type: 'chats';
+      items: { id: string; title: string; updatedAt: number; turns: number }[];
+      active: string;
+      running: string[];
+    }
   | { type: 'done' };
 
 type FromView =
@@ -43,7 +48,8 @@ export class ChatView implements vscode.WebviewViewProvider {
   private readonly sessions: Sessions;
   private readonly otel: OtelClient;
   private session: Session;
-  private active: AbortController | undefined;
+  /** One run per chat, so chats work in parallel. */
+  private readonly runs = new Map<string, AbortController>();
 
   constructor(ext: vscode.Uri, store: Store, otel: OtelClient) {
     this.ext = ext;
@@ -68,7 +74,7 @@ export class ChatView implements vscode.WebviewViewProvider {
         void this.sendFiles(webview);
         break;
       case 'send':
-        if (!this.active) void this.turn(message.text, webview);
+        if (!this.runs.has(this.session.id)) void this.turn(message.text, webview);
         break;
       case 'session':
         this.session = this.sessions.select(message.id);
@@ -110,13 +116,17 @@ export class ChatView implements vscode.WebviewViewProvider {
         break;
       }
       case 'cancel':
-        this.active?.abort();
+        this.runs.get(this.session.id)?.abort();
         break;
     }
   }
 
   private async turn(text: string, webview: vscode.Webview): Promise<void> {
-    const post = (m: ToView): void => void webview.postMessage(m);
+    // Bind to the chat this turn belongs to. The user may switch away mid-run,
+    // and the view drops events that are not for what it is showing.
+    const chat = this.session;
+    const post = (m: ToView): void =>
+      void webview.postMessage({ ...m, chat: chat.id } satisfies ToView & { chat: string });
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     if (!root) {
@@ -127,20 +137,20 @@ export class ChatView implements vscode.WebviewViewProvider {
 
     const { cfg, system, limits, warmupMs } = settings();
     const controller = new AbortController();
-    this.active = controller;
+    this.runs.set(chat.id, controller);
 
     const userContent = await expandMentions(text, { root, limits });
-    this.session.messages.push({ role: 'user', content: userContent });
-    this.sessions.save(this.session);
+    chat.messages.push({ role: 'user', content: userContent });
+    this.sessions.save(chat);
     this.sendSessions(webview);
 
     // One chat turn becomes one OTel trace, recorded as it happens and
     // handed to the gate when the turn ends. Off unless opted in.
     const telemetry = otelConfig();
     this.otel.updateConfig(telemetry);
-    const turnNumber = this.session.messages.filter((m) => m.role === 'user').length;
+    const turnNumber = chat.messages.filter((m) => m.role === 'user').length;
     const trace = telemetry.enabled
-      ? new TurnTrace(`${this.session.id}:${turnNumber}`, userContent, telemetry.maxAttrBytes)
+      ? new TurnTrace(`${chat.id}:${turnNumber}`, userContent, telemetry.maxAttrBytes)
       : undefined;
 
     try {
@@ -159,13 +169,14 @@ export class ChatView implements vscode.WebviewViewProvider {
           else trace.tool(spanId(), e.observation);
         },
       };
-      for await (const event of run(this.session.messages, deps)) post(project(event));
+      for await (const event of run(chat.messages, deps)) post(project(event));
     } catch (e) {
       const reason = controller.signal.aborted ? 'Cancelled.' : (e as unknown as Error).message;
       post({ type: 'status', text: reason });
     } finally {
-      this.active = undefined;
-      this.sessions.save(this.session);
+      this.runs.delete(chat.id);
+      this.sessions.save(chat);
+      this.sendSessions(webview);
       if (trace) this.otel.submit(trace.body(resourceFor(telemetry, root)));
       post({ type: 'done' });
     }
@@ -182,7 +193,12 @@ export class ChatView implements vscode.WebviewViewProvider {
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
 
-    void webview.postMessage({ type: 'chats', items, active: this.session.id } satisfies ToView);
+    void webview.postMessage({
+      type: 'chats',
+      items,
+      active: this.session.id,
+      running: [...this.runs.keys()],
+    } satisfies ToView);
   }
 
   private sendHistory(webview: vscode.Webview): void {

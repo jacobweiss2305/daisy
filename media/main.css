@@ -739,3 +739,29 @@ button.stop svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
 }
 
 .msg.queued .drop:hover { color: var(--vscode-errorForeground); background: var(--vscode-input-background); }
+
+/* Who is working: a dot on each chat row, and one beside the title. */
+.chat .state {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+}
+
+.chat.live .state {
+  background: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.chat.live .meta { color: var(--vscode-textLink-foreground); }
+
+button.title.running::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  animation: pulse 1.1s ease-in-out infinite;
+}
