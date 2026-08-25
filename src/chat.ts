@@ -183,7 +183,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     this.sendSessions(webview);
 
     // One chat turn becomes one OTel trace, recorded as it happens and
-    // handed to the gate when the turn ends. Off unless opted in.
+    // exported when the turn ends. Off unless opted in.
     const telemetry = otelConfig();
     this.otel.updateConfig(telemetry);
     const turnNumber = chat.messages.filter((m) => m.role === 'user').length;

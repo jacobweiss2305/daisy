@@ -196,14 +196,12 @@ test('builds one trace per turn: agent root, llm, and tool spans', () => {
   }
 });
 
-test('the root span carries the conversation id the gate reads as a session', () => {
+test('the root span carries the chat as a conversation and the turn as its own id', () => {
   const trace = new TurnTrace('chat-1:1', 'hi', 32768, 'chat-1');
   const root = (trace.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
   const attrs = Object.fromEntries((root?.attributes ?? []).map((a) => [a.key, a.value]));
   assert.equal(attrs['gen_ai.conversation.id']?.stringValue, 'chat-1');
-  // daisy.scenario_id was read by nothing; the gate reads zeroproof.scenario_id.
-  assert.equal(attrs['daisy.scenario_id'], undefined);
-  assert.equal(attrs['zeroproof.scenario_id']?.stringValue, 'chat-1:1');
+  assert.equal(attrs['daisy.turn_id']?.stringValue, 'chat-1:1');
 
   const bare = new TurnTrace('c:1', 'hi', 32768);
   const bareRoot = (bare.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
@@ -334,7 +332,7 @@ test('retries 5xx on the next flush and drops permanent 4xx', async () => {
 
   status = 202;
   await c.flush();
-  assert.equal(c.pending, 0, 'the retry lands once the gate is healthy');
+  assert.equal(c.pending, 0, 'the retry lands once the backend is healthy');
 
   status = 401;
   c.submit(oneLlmTrace().body(RESOURCE));

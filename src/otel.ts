@@ -121,7 +121,7 @@ function epochNano(epochMs: number): string {
   return (BigInt(Math.trunc(epochMs)) * 1_000_000n).toString();
 }
 
-/** Attribute values the gate reads, in the OTLP AnyValue shape. */
+/** Attribute values in the OTLP AnyValue shape. */
 interface OtlpAttrValue {
   stringValue?: string;
   intValue?: string;
@@ -156,7 +156,7 @@ export class TurnTrace {
   readonly traceId: string;
   readonly rootSpanId: string;
 
-  private readonly scenarioId: string;
+  private readonly turnId: string;
   private readonly sessionId: string;
   private readonly inputText: string;
   private readonly maxAttr: number;
@@ -165,10 +165,10 @@ export class TurnTrace {
   private finalText = '';
   private closed = false;
 
-  constructor(scenarioId: string, inputText: string, maxAttr: number, sessionId = '') {
+  constructor(turnId: string, inputText: string, maxAttr: number, sessionId = '') {
     this.traceId = hex(16);
     this.rootSpanId = spanId();
-    this.scenarioId = scenarioId;
+    this.turnId = turnId;
     this.sessionId = sessionId;
     this.inputText = inputText;
     this.maxAttr = maxAttr;
@@ -246,9 +246,9 @@ export class TurnTrace {
       attributes: [
         this.attr('gen_ai.operation.name', 'invoke_agent'),
         this.attr('gen_ai.agent.name', 'daisy'),
-        this.attr('zeroproof.scenario_id', this.scenarioId),
+        this.attr('daisy.turn_id', this.turnId),
         ...(this.sessionId ? [this.attr('gen_ai.conversation.id', this.sessionId)] : []),
-        // Raw text: the gate wraps a non-JSON string itself, without this it double-wraps.
+        // Raw text: a backend wraps a non-JSON string itself, so wrapping here double-wraps.
         this.attr('gen_ai.input.messages', this.inputText),
         this.attr('gen_ai.output.messages', JSON.stringify([{ role: 'assistant', content: this.finalText }])),
       ],
@@ -310,7 +310,7 @@ export class TurnTrace {
   }
 }
 
-/** The gate reads message attributes as arrays; pass arrays through, decode the rest. */
+/** Message attributes travel as arrays; pass arrays through, decode the rest. */
 function asArray(value: unknown): unknown {
   if (Array.isArray(value)) return value;
 
@@ -323,7 +323,7 @@ function asArray(value: unknown): unknown {
   }
 }
 
-/** Keeps one attribute from growing a batch past the gate's 8 MB batch cap. */
+/** Keeps one attribute from growing a batch past whatever the backend accepts. */
 function clip(value: string, max: number): string {
   if (Buffer.byteLength(value) <= max) return value;
 
@@ -353,7 +353,7 @@ export interface OtelClientDeps {
 }
 
 /**
- * Fire-and-forget delivery of OTLP export requests to the gate's
+ * Fire-and-forget delivery of OTLP export requests to the configured
  * `/v1/traces`. Batches that cannot be delivered are kept in a bounded
  * in-memory outbox and retried by the next flush; nothing is retried in
  * the background, and a turned-off telemetry drops no data quietly — it
