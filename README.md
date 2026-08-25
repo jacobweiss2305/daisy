@@ -37,9 +37,11 @@ Defaults assume Ollama on `localhost:11434`:
 ollama pull hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL
 ```
 
-The gear holds the model chooser, the system prompt, and the endpoint editor:
-name, base URL, and API key, with add and remove. Opening it re-reads what each
-endpoint serves. `daisy.endpoints` holds objects, so the settings UI
+The gear holds the system prompt and the endpoint editor: name, base URL, and
+API key, with add and remove. Each card shows what that endpoint is serving, and
+picking an endpoint picks the model with it, since a server generally hosts one.
+With more than one endpoint configured, a radio on each card chooses the active
+one. Opening the gear re-reads what every endpoint serves. `daisy.endpoints` holds objects, so the settings UI
 falls back to raw JSON for it, which is why the panel has its own form.
 
 Daisy talks to several servers at once. `daisy.endpoints` is a list, and the

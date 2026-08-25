@@ -499,21 +499,6 @@ button.primary {
 
 button.primary:hover { background: var(--vscode-button-hoverBackground); }
 
-#settings h2 + .chooser { margin-bottom: 16px; }
-
-.chooser {
-  width: 100%;
-  padding: 6px 8px;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--edge);
-  border-radius: 7px;
-  outline: none;
-  font-family: inherit;
-  font-size: 0.9em;
-  cursor: pointer;
-}
-
 #settings h2 { margin-top: 14px; }
 #settings > h2:first-child { margin-top: 0; }
 
@@ -637,3 +622,24 @@ button.title svg {
 }
 
 .prompt-edit:focus { border-color: var(--vscode-focusBorder); }
+
+.endpoint.on { border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 55%, transparent); }
+
+.endpoint .serving {
+  font-size: 0.8em;
+  color: var(--quiet);
+  font-family: var(--vscode-editor-font-family);
+}
+
+.endpoint .use {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82em;
+  color: var(--quiet);
+  cursor: pointer;
+}
+
+.endpoint .use input { margin: 0; }
+.endpoint .use span { text-transform: none; letter-spacing: 0; font-size: 1em; }

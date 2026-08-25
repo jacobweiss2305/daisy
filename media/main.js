@@ -29,7 +29,7 @@ let openRaw = '';
 let frame = 0;
 let busy = false;
 let endpoints = [];
-let picked = { endpoint: '', model: '' };
+let activeEndpoint = '';
 let systemPrompt = '';
 let chatList = [];
 let activeChat = '';
@@ -144,7 +144,6 @@ window.addEventListener('message', ({ data }) => {
 
     case 'models':
       modelRefs = data.items;
-      picked = data.selected;
       if (!settings.hidden) renderSettings();
       break;
 
@@ -177,6 +176,7 @@ window.addEventListener('message', ({ data }) => {
     case 'config':
       endpoints = data.endpoints.map((e) => ({ ...e }));
       systemPrompt = data.systemPrompt;
+      activeEndpoint = data.active;
       if (!settings.hidden) renderSettings();
       break;
 
@@ -426,39 +426,6 @@ function fill(select, entries, selected, empty) {
 function renderSettings() {
   settings.replaceChildren();
 
-  const modelTitle = document.createElement('h2');
-  modelTitle.textContent = 'Model';
-  settings.append(modelTitle);
-
-  const choose = document.createElement('select');
-  choose.className = 'chooser';
-
-  if (!modelRefs.length) {
-    const none = document.createElement('option');
-    none.textContent = 'no models found';
-    none.disabled = true;
-    none.selected = true;
-    choose.append(none);
-  } else {
-    const spread = new Set(modelRefs.map((r) => r.endpoint)).size > 1;
-    modelRefs.forEach((ref, i) => {
-      const option = document.createElement('option');
-      option.value = String(i);
-      option.textContent = spread ? `${short(ref.model)} · ${ref.endpoint}` : short(ref.model);
-      option.selected = ref.endpoint === picked.endpoint && ref.model === picked.model;
-      choose.append(option);
-    });
-  }
-
-  choose.addEventListener('change', () => {
-    const ref = modelRefs[Number(choose.value)];
-    if (!ref) return;
-    picked = ref;
-    vscode.postMessage({ type: 'model', ref });
-  });
-
-  settings.append(choose);
-
   const promptTitle = document.createElement('h2');
   promptTitle.textContent = 'System prompt';
   settings.append(promptTitle);
@@ -486,7 +453,33 @@ function renderSettings() {
 
   endpoints.forEach((endpoint, i) => {
     const card = document.createElement('div');
-    card.className = 'endpoint';
+    card.className = endpoint.name === activeEndpoint ? 'endpoint on' : 'endpoint';
+
+    if (endpoints.length > 1) {
+      const use = document.createElement('label');
+      use.className = 'use';
+
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'active-endpoint';
+      radio.checked = endpoint.name === activeEndpoint;
+      radio.addEventListener('change', () => {
+        activeEndpoint = endpoint.name;
+        renderSettings();
+      });
+
+      const caption = document.createElement('span');
+      caption.textContent = 'Use this endpoint';
+
+      use.append(radio, caption);
+      card.append(use);
+    }
+
+    const serves = modelRefs.filter((m) => m.endpoint === endpoint.name).map((m) => short(m.model));
+    const serving = document.createElement('div');
+    serving.className = 'serving';
+    serving.textContent = serves.length ? serves.join(', ') : 'not reachable';
+    card.append(serving);
 
     for (const [key, label, type] of [
       ['name', 'Name', 'text'],
@@ -540,7 +533,12 @@ function renderSettings() {
   save.className = 'primary';
   save.textContent = 'Save';
   save.addEventListener('click', () => {
-    vscode.postMessage({ type: 'saveConfig', endpoints, systemPrompt });
+    vscode.postMessage({
+      type: 'saveConfig',
+      endpoints,
+      systemPrompt,
+      active: activeEndpoint || endpoints[0]?.name || '',
+    });
     show('log');
   });
 

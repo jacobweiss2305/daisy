@@ -15,7 +15,7 @@ type ToView =
   | { type: 'sessions'; items: { id: string; title: string }[]; active: string }
   | { type: 'history'; items: { role: 'user' | 'assistant'; text: string }[] }
   | { type: 'files'; items: string[] }
-  | { type: 'config'; endpoints: Endpoint[]; systemPrompt: string }
+  | { type: 'config'; endpoints: Endpoint[]; systemPrompt: string; active: string }
   | { type: 'chats'; items: { id: string; title: string; updatedAt: number; turns: number }[]; active: string }
   | { type: 'done' };
 
@@ -25,7 +25,7 @@ type FromView =
   | { type: 'session'; id: string }
   | { type: 'new' }
   | { type: 'refresh' }
-  | { type: 'saveConfig'; endpoints: Endpoint[]; systemPrompt: string }
+  | { type: 'saveConfig'; endpoints: Endpoint[]; systemPrompt: string; active: string }
   | { type: 'deleteChat'; id: string }
   | { type: 'ready' }
   | { type: 'cancel' };
@@ -89,6 +89,7 @@ export class ChatView implements vscode.WebviewViewProvider {
         const clean = message.endpoints.filter((e) => e.name.trim() && e.baseUrl.trim());
         const config = vscode.workspace.getConfiguration('daisy');
         void config.update('systemPrompt', message.systemPrompt, vscode.ConfigurationTarget.Global);
+        void config.update('endpoint', message.active, vscode.ConfigurationTarget.Global);
         void config
           .update('endpoints', clean, vscode.ConfigurationTarget.Global)
           .then(() => {
@@ -177,11 +178,12 @@ export class ChatView implements vscode.WebviewViewProvider {
   }
 
   private sendConfig(webview: vscode.Webview): void {
-    const { endpoints, system } = settings();
+    const { endpoints, system, active } = settings();
     void webview.postMessage({
       type: 'config',
       endpoints,
       systemPrompt: system,
+      active: active.endpoint,
     } satisfies ToView);
   }
 
@@ -206,10 +208,10 @@ export class ChatView implements vscode.WebviewViewProvider {
       } satisfies ToView);
     }
 
+    // One endpoint serves one model, so the endpoint choice decides the model.
+    const served = items.filter((m) => m.endpoint === active.endpoint);
     const live =
-      items.find((m) => m.endpoint === active.endpoint && m.model === active.model) ??
-      items[0] ??
-      active;
+      served.find((m) => m.model === active.model) ?? served[0] ?? items[0] ?? active;
 
     if (live.model !== active.model || live.endpoint !== active.endpoint) {
       const config = vscode.workspace.getConfiguration('daisy');
@@ -242,7 +244,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
   </button>
   <button id="gear" class="icon" type="button" title="Endpoints" aria-label="Endpoints">
-    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3M12.5 12.5l-1.3-1.3M4.8 4.8 3.5 3.5"/></svg>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
 
