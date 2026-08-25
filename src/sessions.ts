@@ -15,13 +15,15 @@ export interface Store {
 
 const ALL = 'daisy.sessions';
 const ACTIVE = 'daisy.active';
-const KEEP = 30;
+export const DEFAULT_KEPT = 30;
 
 export class Sessions {
   private readonly store: Store;
+  private readonly kept: number;
 
-  constructor(store: Store) {
+  constructor(store: Store, kept: number = DEFAULT_KEPT) {
     this.store = store;
+    this.kept = kept;
   }
 
   list(): Session[] {
@@ -40,7 +42,7 @@ export class Sessions {
       title: 'New chat',
       messages: [],
     };
-    void this.store.update(ALL, [session, ...this.list()].slice(0, KEEP));
+    void this.store.update(ALL, [session, ...this.list()].slice(0, this.kept));
     void this.store.update(ACTIVE, session.id);
     return session;
   }

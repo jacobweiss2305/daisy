@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { run, type AgentEvent } from './agent.ts';
 import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
-import { expandMentions } from './tools.ts';
+import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
 
 type ToView =
   | { type: 'text'; text: string }
@@ -40,7 +40,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
   constructor(ext: vscode.Uri, store: Store) {
     this.ext = ext;
-    this.sessions = new Sessions(store);
+    this.sessions = new Sessions(store, settings().sessionsKept);
     this.session = this.sessions.active();
   }
 
@@ -96,11 +96,11 @@ export class ChatView implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { cfg, system } = settings();
+    const { cfg, system, limits, warmupMs } = settings();
     const controller = new AbortController();
     this.active = controller;
 
-    this.session.messages.push({ role: 'user', content: await expandMentions(text, root) });
+    this.session.messages.push({ role: 'user', content: await expandMentions(text, { root, limits }) });
     this.sessions.save(this.session);
     this.sendSessions(webview);
 
@@ -109,6 +109,8 @@ export class ChatView implements vscode.WebviewViewProvider {
         cfg,
         root,
         system,
+        limits,
+        warmupMs,
         signal: controller.signal,
         onWait: (seconds: number) =>
           post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
@@ -148,7 +150,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     const uris = await vscode.workspace.findFiles(
       '**/*',
       '**/{node_modules,.git,dist,out,build,.venv,__pycache__}/**',
-      3000,
+      settings().fileSearchLimit,
     );
     const items = uris.map((u) => vscode.workspace.asRelativePath(u, false)).sort();
     void webview.postMessage({ type: 'files', items } satisfies ToView);
@@ -224,6 +226,10 @@ function settings(): {
   active: ModelRef;
   cfg: LlmConfig;
   system: string;
+  limits: Limits;
+  sessionsKept: number;
+  fileSearchLimit: number;
+  warmupMs: number;
 } {
   const c = vscode.workspace.getConfiguration('daisy');
   const endpoints = c.get<Endpoint[]>('endpoints', []);
@@ -238,5 +244,13 @@ function settings(): {
     active: { endpoint: chosen.name, model },
     cfg: { baseUrl: chosen.baseUrl, model, apiKey: chosen.apiKey ?? '' },
     system: c.get<string>('systemPrompt', '').trim() || DEFAULT_SYSTEM,
+    limits: {
+      fileBytes: c.get<number>('maxFileBytes', DEFAULT_LIMITS.fileBytes),
+      commandTimeoutMs: c.get<number>('commandTimeout', 120) * 1000,
+      outputBytes: c.get<number>('maxOutputBytes', DEFAULT_LIMITS.outputBytes),
+    },
+    sessionsKept: c.get<number>('sessionsKept', 30),
+    fileSearchLimit: c.get<number>('fileSearchLimit', 3000),
+    warmupMs: c.get<number>('warmupTimeout', 300) * 1000,
   };
 }

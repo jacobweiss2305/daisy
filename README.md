@@ -136,6 +136,26 @@ kept separate from the answer. Reasoning is never written back into the message
 history, so it costs nothing on later turns. Both conventions are handled: a
 `reasoning_content` field on the delta, and `<think>` tags inline in the content.
 
+## Settings
+
+| Setting | Default | What it controls |
+| --- | --- | --- |
+| `daisy.endpoints` | ollama | Servers offered in the model dropdown |
+| `daisy.endpoint` | first | Which one serves the selected model |
+| `daisy.model` | | Selected model |
+| `daisy.systemPrompt` | see below | Instructions sent with every message |
+| `daisy.maxFileBytes` | 65536 | Largest file body handed to the model |
+| `daisy.commandTimeout` | 120 | Seconds a shell command may run |
+| `daisy.maxOutputBytes` | 1048576 | Most output a command may produce |
+| `daisy.fileSearchLimit` | 3000 | Files offered to `@` autocomplete |
+| `daisy.sessionsKept` | 30 | Chats kept before the oldest are dropped |
+| `daisy.warmupTimeout` | 300 | Seconds to retry an endpoint that is starting |
+
+The four size and time limits are the ones that quietly change answers rather
+than just failing: a clipped file reads as a whole file to the model, and a
+killed command reads as a broken one. Raise them when a repo or a build outgrows
+them.
+
 ## Tools
 
 | Tool | What it does |

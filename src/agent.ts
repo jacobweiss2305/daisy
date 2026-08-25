@@ -1,5 +1,5 @@
 import { stream, toWire, type LlmConfig, type Message, type ToolCall } from './llm.ts';
-import { SPECS, TOOLS, type Args } from './tools.ts';
+import { SPECS, TOOLS, type Args, type Limits } from './tools.ts';
 
 export type AgentEvent =
   | { kind: 'text'; text: string }
@@ -11,8 +11,10 @@ export interface AgentDeps {
   cfg: LlmConfig;
   root: string;
   system: string;
+  limits: Limits;
   signal: AbortSignal;
-  onWait?: (seconds: number) => void;
+  warmupMs?: number | undefined;
+  onWait?: ((seconds: number) => void) | undefined;
 }
 
 /** Streams one turn to completion, appending every exchange to `messages`.
@@ -27,7 +29,7 @@ export async function* run(messages: Message[], deps: AgentDeps): AsyncGenerator
       ...messages.filter((m) => m.role !== 'system'),
     ];
 
-    for await (const chunk of stream(deps.cfg, sent, SPECS, deps.signal, deps.onWait)) {
+    for await (const chunk of stream(deps.cfg, sent, SPECS, deps.signal, { warmupMs: deps.warmupMs, onWait: deps.onWait })) {
       if (chunk.kind === 'text') {
         text += chunk.text;
         yield { kind: 'text', text: chunk.text };
@@ -75,7 +77,8 @@ async function execute(
   }
 
   try {
-    return { output: await tool.run(args, deps.root), failed: false };
+    const ctx = { root: deps.root, limits: deps.limits };
+    return { output: await tool.run(args, ctx), failed: false };
   } catch (e) {
     return { output: `error: ${(e as Error).message}`, failed: true };
   }

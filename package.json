@@ -85,6 +85,42 @@
           "default": "You are Daisy, a coding agent inside VS Code, working in the user's open folder.\nUse the tools to inspect and change files rather than guessing or asking for pasted code.\nPaths are relative to the workspace root.",
           "editPresentation": "multilineText",
           "markdownDescription": "Instructions sent ahead of every message. Applies to existing chats too, since it is not stored in their history. Empty falls back to the default."
+        },
+        "daisy.maxFileBytes": {
+          "type": "integer",
+          "default": 65536,
+          "minimum": 1,
+          "description": "Largest file body handed to the model. Longer files are clipped."
+        },
+        "daisy.commandTimeout": {
+          "type": "integer",
+          "default": 120,
+          "minimum": 1,
+          "description": "Seconds a shell command may run before it is killed."
+        },
+        "daisy.maxOutputBytes": {
+          "type": "integer",
+          "default": 1048576,
+          "minimum": 1,
+          "description": "Most output a shell command may produce. Exceeding it loses the output."
+        },
+        "daisy.fileSearchLimit": {
+          "type": "integer",
+          "default": 3000,
+          "minimum": 1,
+          "description": "Most files offered to @ autocomplete."
+        },
+        "daisy.sessionsKept": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 1,
+          "description": "How many chats to keep before the oldest are dropped."
+        },
+        "daisy.warmupTimeout": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 1,
+          "description": "Seconds to keep retrying an endpoint that is still starting."
         }
       }
     },

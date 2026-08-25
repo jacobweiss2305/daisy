@@ -173,7 +173,7 @@ test('retries a cold endpoint until it answers', async () => {
 
   const waits: number[] = [];
   const out: Chunk[] = [];
-  for await (const c of stream(CFG, [], [], new AbortController().signal, (s) => waits.push(s))) {
+  for await (const c of stream(CFG, [], [], new AbortController().signal, { onWait: (s) => waits.push(s) })) {
     out.push(c);
   }
 

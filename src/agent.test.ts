@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { run } from './agent.ts';
+import { DEFAULT_LIMITS } from './tools.ts';
 import type { Message } from './llm.ts';
 
 function reply(text: string): Response {
@@ -26,6 +27,7 @@ test('sends the current system prompt and never stores it in history', async () 
     cfg: { baseUrl: 'http://x/v1', model: 'm', apiKey: '' },
     root: '.',
     system: 'the current prompt',
+    limits: DEFAULT_LIMITS,
     signal: new AbortController().signal,
   };
 

@@ -46,7 +46,7 @@ export async function* stream(
   messages: Message[],
   tools: readonly unknown[],
   signal: AbortSignal,
-  onWait?: (seconds: number) => void,
+  opts: StreamOptions = {},
 ): AsyncGenerator<Chunk> {
   const body = JSON.stringify({
     model: cfg.model,
@@ -55,7 +55,7 @@ export async function* stream(
     ...(tools.length ? { tools } : {}),
   });
 
-  const res = await send(cfg, body, signal, onWait);
+  const res = await send(cfg, body, signal, opts);
 
   if (!res.ok || !res.body) {
     const detail = (await res.text()).slice(0, 300).trim();
@@ -261,14 +261,22 @@ export async function listAll(endpoints: readonly Endpoint[]): Promise<ModelRef[
 // A scale-to-zero endpoint answers 503 with an empty body until a container is
 // up, which can take minutes for a large model.
 const COLD = new Set([502, 503, 504]);
-const GIVE_UP_MS = 5 * 60_000;
+
+export const DEFAULT_WARMUP_MS = 5 * 60_000;
+
+export interface StreamOptions {
+  /** How long to keep retrying a cold endpoint before giving up. */
+  warmupMs?: number | undefined;
+  onWait?: ((seconds: number) => void) | undefined;
+}
 
 async function send(
   cfg: LlmConfig,
   body: string,
   signal: AbortSignal,
-  onWait?: (seconds: number) => void,
+  opts: StreamOptions,
 ): Promise<Response> {
+  const limit = opts.warmupMs ?? DEFAULT_WARMUP_MS;
   const url = `${base(cfg)}/chat/completions`;
   const started = Date.now();
   let delay = 2_000;
@@ -277,9 +285,9 @@ async function send(
     const res = await fetch(url, { method: 'POST', signal, headers: headers(cfg), body });
     const waited = Date.now() - started;
 
-    if (!COLD.has(res.status) || waited > GIVE_UP_MS) return res;
+    if (!COLD.has(res.status) || waited > limit) return res;
 
-    onWait?.(Math.round(waited / 1_000));
+    opts.onWait?.(Math.round(waited / 1_000));
     await pause(delay, signal);
     delay = Math.min(delay * 1.5, 15_000);
   }
