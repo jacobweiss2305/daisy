@@ -77,18 +77,27 @@ test('trims a trailing slash off the endpoint', () => {
 test('falls back to the standard OTLP environment variables', () => {
   const saved = {
     endpoint: process.env['OTEL_EXPORTER_OTLP_ENDPOINT'],
+    traces: process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'],
     headers: process.env['OTEL_EXPORTER_OTLP_HEADERS'],
   };
   process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'https://from-env.example';
+  process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] = 'https://signal.example/v1/traces';
   process.env['OTEL_EXPORTER_OTLP_HEADERS'] = 'authorization=Bearer t,x-scope=team';
 
   try {
-    const cfg = resolveOtel({ ...SETTINGS, endpoint: '', headers: {} });
-    assert.equal(cfg.endpoint, 'https://from-env.example');
+    // The signal-specific variable wins and is sent as written.
+    let cfg = resolveOtel({ ...SETTINGS, endpoint: '', headers: {} });
+    assert.equal(cfg.endpoint, 'https://signal.example/v1/traces');
+
+    // Without it, the generic one is a base the exporter extends.
+    delete process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
+    cfg = resolveOtel({ ...SETTINGS, endpoint: '', headers: {} });
+    assert.equal(cfg.endpoint, 'https://from-env.example/v1/traces');
     assert.deepEqual(cfg.headers, { authorization: 'Bearer t', 'x-scope': 'team' });
   } finally {
     for (const [key, value] of [
       ['OTEL_EXPORTER_OTLP_ENDPOINT', saved.endpoint],
+      ['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', saved.traces],
       ['OTEL_EXPORTER_OTLP_HEADERS', saved.headers],
     ] as const) {
       if (value === undefined) delete process.env[key];
@@ -185,6 +194,20 @@ test('builds one trace per turn: agent root, llm, and tool spans', () => {
     assert.match(s.startTimeUnixNano, /^\d{19}$/);
     assert.match(s.endTimeUnixNano, /^\d{19}$/);
   }
+});
+
+test('the root span carries the conversation id the gate reads as a session', () => {
+  const trace = new TurnTrace('chat-1:1', 'hi', 32768, 'chat-1');
+  const root = (trace.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
+  const attrs = Object.fromEntries((root?.attributes ?? []).map((a) => [a.key, a.value]));
+  assert.equal(attrs['gen_ai.conversation.id']?.stringValue, 'chat-1');
+  // daisy.scenario_id was read by nothing; the gate reads zeroproof.scenario_id.
+  assert.equal(attrs['daisy.scenario_id'], undefined);
+  assert.equal(attrs['zeroproof.scenario_id']?.stringValue, 'chat-1:1');
+
+  const bare = new TurnTrace('c:1', 'hi', 32768);
+  const bareRoot = (bare.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
+  assert.ok(!(bareRoot?.attributes ?? []).some((a) => a.key === 'gen_ai.conversation.id'));
 });
 
 test('the body is only produced once', () => {

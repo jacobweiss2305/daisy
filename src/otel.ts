@@ -39,7 +39,15 @@ export type OtelConfig = OtelSettings;
  * existing collector setup needs no extra configuration here.
  */
 export function resolveOtel(s: OtelSettings): OtelConfig {
-  const endpoint = (s.endpoint.trim() || env('OTEL_EXPORTER_OTLP_ENDPOINT')).replace(/\/+$/, '');
+  // The signal-specific variable is sent as written; the generic one is a base
+  // the exporter appends /v1/traces to. Same split as the OTel SDKs, so an
+  // existing collector setup needs no translation here.
+  const generic = env('OTEL_EXPORTER_OTLP_ENDPOINT');
+  const endpoint = (
+    s.endpoint.trim() ||
+    env('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT') ||
+    (generic ? `${generic}/v1/traces` : '')
+  ).replace(/\/+$/, '');
   const headers = Object.keys(s.headers).length
     ? s.headers
     : parseHeaders(env('OTEL_EXPORTER_OTLP_HEADERS'));
@@ -149,6 +157,7 @@ export class TurnTrace {
   readonly rootSpanId: string;
 
   private readonly scenarioId: string;
+  private readonly sessionId: string;
   private readonly inputText: string;
   private readonly maxAttr: number;
   private readonly startedMs: number;
@@ -156,10 +165,11 @@ export class TurnTrace {
   private finalText = '';
   private closed = false;
 
-  constructor(scenarioId: string, inputText: string, maxAttr: number) {
+  constructor(scenarioId: string, inputText: string, maxAttr: number, sessionId = '') {
     this.traceId = hex(16);
     this.rootSpanId = spanId();
     this.scenarioId = scenarioId;
+    this.sessionId = sessionId;
     this.inputText = inputText;
     this.maxAttr = maxAttr;
     this.startedMs = Date.now();
@@ -236,7 +246,8 @@ export class TurnTrace {
       attributes: [
         this.attr('gen_ai.operation.name', 'invoke_agent'),
         this.attr('gen_ai.agent.name', 'daisy'),
-        this.attr('daisy.scenario_id', this.scenarioId),
+        this.attr('zeroproof.scenario_id', this.scenarioId),
+        ...(this.sessionId ? [this.attr('gen_ai.conversation.id', this.sessionId)] : []),
         // Raw text: the gate wraps a non-JSON string itself, without this it double-wraps.
         this.attr('gen_ai.input.messages', this.inputText),
         this.attr('gen_ai.output.messages', JSON.stringify([{ role: 'assistant', content: this.finalText }])),

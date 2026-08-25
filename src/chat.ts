@@ -188,7 +188,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     this.otel.updateConfig(telemetry);
     const turnNumber = chat.messages.filter((m) => m.role === 'user').length;
     const trace = telemetry.enabled
-      ? new TurnTrace(`${chat.id}:${turnNumber}`, userContent, telemetry.maxAttrBytes)
+      ? new TurnTrace(`${chat.id}:${turnNumber}`, userContent, telemetry.maxAttrBytes, chat.id)
       : undefined;
 
     try {
