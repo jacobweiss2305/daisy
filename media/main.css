@@ -311,7 +311,6 @@ button.send svg {
   stroke-linejoin: round;
 }
 
-body.busy button.send svg { transform: rotate(180deg); }
 
 #foot {
   display: flex;
@@ -693,3 +692,50 @@ button.title svg {
 }
 
 .msg.assistant tbody tr:last-child td { border-bottom: none; }
+
+button.stop {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--vscode-foreground);
+  background: var(--sunken);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+button.stop:hover {
+  color: var(--vscode-errorForeground);
+  border-color: color-mix(in srgb, var(--vscode-errorForeground) 50%, transparent);
+}
+
+button.stop svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
+
+.msg.queued {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  opacity: 0.55;
+  border-left-style: dashed;
+}
+
+.msg.queued span { flex: 1; min-width: 0; }
+
+.msg.queued .drop {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--quiet);
+  background: none;
+  border: none;
+  border-radius: 5px;
+  font-size: 1.05em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.msg.queued .drop:hover { color: var(--vscode-errorForeground); background: var(--vscode-input-background); }

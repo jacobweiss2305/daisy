@@ -94,6 +94,11 @@ of assigning HTML, so markup in a reply is text and there is nothing to sanitise
 Rendering is coalesced to one pass per animation frame, so a long reply does not
 reparse on every token.
 
+**Queueing.** Send while she is working and the message waits its turn instead
+of interrupting, shown dimmed in the transcript with an X to drop it. Each one
+fires as the previous turn ends, so you can line up a run and walk away. Stop
+halts the current turn and clears what is queued behind it.
+
 **Scrolling.** The transcript follows new output only while you are already at
 the bottom. Scroll up mid-generation and it stays where you put it, with a jump
 button to return.

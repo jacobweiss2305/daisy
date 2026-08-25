@@ -4,6 +4,7 @@ const log = document.getElementById('log');
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const submit = document.getElementById('submit');
+const stop = document.getElementById('stop');
 const titleBtn = document.getElementById('title');
 const titleText = document.getElementById('titleText');
 const chats = document.getElementById('chats');
@@ -29,6 +30,7 @@ let openRaw = '';
 let frame = 0;
 let busy = false;
 let follow = true;
+const queue = [];
 let endpoints = [];
 let activeEndpoint = '';
 let systemPrompt = '';
@@ -60,22 +62,69 @@ function show(view) {
 form.addEventListener('submit', (event) => {
   event.preventDefault();
 
-  if (busy) {
-    vscode.postMessage({ type: 'cancel' });
-    return;
-  }
-
   const text = prompt.value.trim();
   if (!text) return;
 
-  say('user', 'You').textContent = text;
-  follow = true;
   prompt.value = '';
   grow();
   hideMentions();
+  follow = true;
+
+  if (busy) {
+    enqueue(text);
+    return;
+  }
+
+  send(text);
+});
+
+stop.addEventListener('click', () => {
+  vscode.postMessage({ type: 'cancel' });
+  clearQueue();
+});
+
+function send(text) {
+  say('user', 'You').textContent = text;
   setBusy(true);
   vscode.postMessage({ type: 'send', text });
-});
+}
+
+/** Messages typed mid-turn wait their turn rather than interrupting it. */
+function enqueue(text) {
+  const turn = say('user queued', 'Queued');
+
+  const body = document.createElement('span');
+  body.textContent = text;
+
+  const drop = document.createElement('button');
+  drop.type = 'button';
+  drop.className = 'drop';
+  drop.title = 'Remove from queue';
+  drop.textContent = '×';
+  drop.addEventListener('click', () => {
+    const at = queue.findIndex((q) => q.text === text && q.turn === turn);
+    if (at !== -1) queue.splice(at, 1);
+    turn.closest('.turn').remove();
+  });
+
+  turn.append(body, drop);
+  queue.push({ text, turn });
+  stick();
+}
+
+function clearQueue() {
+  for (const item of queue) item.turn.closest('.turn')?.remove();
+  queue.length = 0;
+}
+
+function next() {
+  const item = queue.shift();
+  if (!item) return;
+
+  const turn = item.turn.closest('.turn');
+  turn?.remove();
+  send(item.text);
+}
 
 prompt.addEventListener('input', () => {
   grow();
@@ -186,6 +235,7 @@ window.addEventListener('message', ({ data }) => {
       closeBubble();
       openThink = null;
       setBusy(false);
+      next();
       break;
   }
 
@@ -654,7 +704,7 @@ function ago(at) {
 function setBusy(value) {
   busy = value;
   document.body.classList.toggle('busy', value);
-  submit.title = value ? 'Stop' : 'Send';
+  stop.hidden = !value;
 }
 
 function grow() {

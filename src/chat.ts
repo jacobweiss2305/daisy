@@ -276,6 +276,9 @@ export class ChatView implements vscode.WebviewViewProvider {
   <div id="mentions" hidden></div>
   <div class="field">
     <textarea id="prompt" rows="1" placeholder="Ask anything"></textarea>
+    <button id="stop" class="stop" type="button" title="Stop" aria-label="Stop" hidden>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.4"/></svg>
+    </button>
     <button id="submit" class="send" type="submit" title="Send" aria-label="Send">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M3.8 7.7 8 3.5l4.2 4.2"/></svg>
     </button>
