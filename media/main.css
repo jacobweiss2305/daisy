@@ -498,3 +498,21 @@ button.primary {
 }
 
 button.primary:hover { background: var(--vscode-button-hoverBackground); }
+
+#settings h2 + .chooser { margin-bottom: 16px; }
+
+.chooser {
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+#settings h2 { margin-top: 14px; }
+#settings > h2:first-child { margin-top: 0; }

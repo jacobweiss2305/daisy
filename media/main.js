@@ -4,8 +4,6 @@ const log = document.getElementById('log');
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const submit = document.getElementById('submit');
-const model = document.getElementById('model');
-const refresh = document.getElementById('refresh');
 const session = document.getElementById('session');
 const startNew = document.getElementById('new');
 const mentions = document.getElementById('mentions');
@@ -29,21 +27,20 @@ let openRaw = '';
 let frame = 0;
 let busy = false;
 let endpoints = [];
+let picked = { endpoint: '', model: '' };
 
-refresh.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 startNew.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
 
 gear.addEventListener('click', () => {
   settings.hidden = !settings.hidden;
   log.hidden = !settings.hidden;
-  if (!settings.hidden) renderSettings();
+  if (settings.hidden) return;
+
+  // Opening settings is the moment to re-read what each endpoint serves.
+  vscode.postMessage({ type: 'refresh' });
+  renderSettings();
 });
 session.addEventListener('change', () => vscode.postMessage({ type: 'session', id: session.value }));
-
-model.addEventListener('change', () => {
-  const ref = modelRefs[Number(model.value)];
-  if (ref) vscode.postMessage({ type: 'model', ref });
-});
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -132,7 +129,9 @@ window.addEventListener('message', ({ data }) => {
       break;
 
     case 'models':
-      fillModels(data.items, data.selected);
+      modelRefs = data.items;
+      picked = data.selected;
+      if (!settings.hidden) renderSettings();
       break;
 
     case 'sessions':
@@ -382,21 +381,6 @@ function accept(path) {
   prompt.focus();
 }
 
-function fillModels(items, selected) {
-  const known = items.some((r) => r.endpoint === selected.endpoint && r.model === selected.model);
-  const refs = known || !selected.model ? items : [selected, ...items];
-  modelRefs = refs;
-
-  const spread = new Set(refs.map((r) => r.endpoint)).size > 1;
-  const entries = refs.map((r, i) => ({
-    value: String(i),
-    label: spread ? `${short(r.model)} · ${r.endpoint}` : short(r.model),
-  }));
-
-  const at = refs.findIndex((r) => r.endpoint === selected.endpoint && r.model === selected.model);
-  fill(model, entries, String(at), 'no models');
-}
-
 /** Vendor prefixes eat width a sidebar does not have. */
 function short(name) {
   return name.includes('/') ? name.slice(name.lastIndexOf('/') + 1) : name;
@@ -426,6 +410,39 @@ function fill(select, entries, selected, empty) {
 /** Endpoints are objects, so the settings UI would otherwise be raw JSON. */
 function renderSettings() {
   settings.replaceChildren();
+
+  const modelTitle = document.createElement('h2');
+  modelTitle.textContent = 'Model';
+  settings.append(modelTitle);
+
+  const choose = document.createElement('select');
+  choose.className = 'chooser';
+
+  if (!modelRefs.length) {
+    const none = document.createElement('option');
+    none.textContent = 'no models found';
+    none.disabled = true;
+    none.selected = true;
+    choose.append(none);
+  } else {
+    const spread = new Set(modelRefs.map((r) => r.endpoint)).size > 1;
+    modelRefs.forEach((ref, i) => {
+      const option = document.createElement('option');
+      option.value = String(i);
+      option.textContent = spread ? `${short(ref.model)} · ${ref.endpoint}` : short(ref.model);
+      option.selected = ref.endpoint === picked.endpoint && ref.model === picked.model;
+      choose.append(option);
+    });
+  }
+
+  choose.addEventListener('change', () => {
+    const ref = modelRefs[Number(choose.value)];
+    if (!ref) return;
+    picked = ref;
+    vscode.postMessage({ type: 'model', ref });
+  });
+
+  settings.append(choose);
 
   const title = document.createElement('h2');
   title.textContent = 'Endpoints';

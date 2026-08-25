@@ -188,7 +188,18 @@ export class ChatView implements vscode.WebviewViewProvider {
       } satisfies ToView);
     }
 
-    void webview.postMessage({ type: 'models', items, selected: active } satisfies ToView);
+    const live =
+      items.find((m) => m.endpoint === active.endpoint && m.model === active.model) ??
+      items[0] ??
+      active;
+
+    if (live.model !== active.model || live.endpoint !== active.endpoint) {
+      const config = vscode.workspace.getConfiguration('daisy');
+      void config.update('endpoint', live.endpoint, vscode.ConfigurationTarget.Global);
+      void config.update('model', live.model, vscode.ConfigurationTarget.Global);
+    }
+
+    void webview.postMessage({ type: 'models', items, selected: live } satisfies ToView);
   }
 
   private html(webview: vscode.Webview): string {
@@ -224,10 +235,6 @@ export class ChatView implements vscode.WebviewViewProvider {
     <button id="submit" class="send" type="submit" title="Send" aria-label="Send">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M3.8 7.7 8 3.5l4.2 4.2"/></svg>
     </button>
-  </div>
-  <div id="foot">
-    <select id="model" title="Model"></select>
-    <button id="refresh" class="quiet" type="button" title="Reload models">Reload</button>
   </div>
 </form>
 
