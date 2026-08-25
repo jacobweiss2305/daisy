@@ -10,6 +10,7 @@ const titleText = document.getElementById('titleText');
 const chats = document.getElementById('chats');
 const startNew = document.getElementById('new');
 const mentions = document.getElementById('mentions');
+const queued = document.getElementById('queued');
 const gear = document.getElementById('gear');
 const settings = document.getElementById('settings');
 
@@ -99,9 +100,10 @@ function send(text) {
   vscode.postMessage({ type: 'send', text });
 }
 
-/** Messages typed mid-turn wait their turn rather than interrupting it. */
+/** Messages typed mid-turn wait on the composer rather than interrupting the turn. */
 function enqueue(text) {
-  const turn = say('user queued', 'Queued');
+  const row = document.createElement('div');
+  row.className = 'queued';
 
   const body = document.createElement('span');
   body.textContent = text;
@@ -112,18 +114,18 @@ function enqueue(text) {
   drop.title = 'Remove from queue';
   drop.textContent = '×';
   drop.addEventListener('click', () => {
-    const at = queue.findIndex((q) => q.text === text && q.turn === turn);
+    const at = queue.findIndex((q) => q.row === row);
     if (at !== -1) queue.splice(at, 1);
-    turn.closest('.turn').remove();
+    row.remove();
   });
 
-  turn.append(body, drop);
-  queue.push({ text, turn });
-  stick();
+  row.append(body, drop);
+  queued.append(row);
+  queue.push({ text, row });
 }
 
 function clearQueue() {
-  for (const item of queue) item.turn.closest('.turn')?.remove();
+  for (const item of queue) item.row.remove();
   queue.length = 0;
 }
 
@@ -131,8 +133,7 @@ function next() {
   const item = queue.shift();
   if (!item) return;
 
-  const turn = item.turn.closest('.turn');
-  turn?.remove();
+  item.row.remove();
   send(item.text);
 }
 

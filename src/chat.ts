@@ -349,6 +349,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
 <form id="composer">
   <div id="mentions" hidden></div>
+  <div id="queued"></div>
   <div class="field">
     <textarea id="prompt" rows="1" placeholder="Ask anything"></textarea>
     <button id="stop" class="stop" type="button" title="Stop" aria-label="Stop" hidden>

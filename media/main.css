@@ -735,17 +735,32 @@ button.stop:hover {
 
 button.stop svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
 
-.msg.queued {
+/* Queued messages sit on the composer so the transcript can scroll away. */
+#queued {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 108px;
+  overflow-y: auto;
+}
+
+#queued:empty { display: none; }
+
+.queued {
   display: flex;
   align-items: flex-start;
   gap: 6px;
+  padding-left: 10px;
   opacity: 0.55;
-  border-left-style: dashed;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-left: 2px dashed color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
 }
 
-.msg.queued span { flex: 1; min-width: 0; }
+.queued span { flex: 1; min-width: 0; }
 
-.msg.queued .drop {
+.queued .drop {
   flex: none;
   width: 20px;
   height: 20px;
@@ -759,7 +774,7 @@ button.stop svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
   cursor: pointer;
 }
 
-.msg.queued .drop:hover { color: var(--vscode-errorForeground); background: var(--vscode-input-background); }
+.queued .drop:hover { color: var(--vscode-errorForeground); background: var(--vscode-input-background); }
 
 /* Who is working: a dot on each chat row, and one beside the title. */
 .chat .state {

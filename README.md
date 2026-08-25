@@ -103,9 +103,9 @@ Stop halts the chat you are looking at. Sending inside a chat that is already
 working queues behind it; sending in a different chat starts a second worker.
 
 **Queueing.** Send while she is working and the message waits its turn instead
-of interrupting, shown dimmed in the transcript with an X to drop it. Each one
-fires as the previous turn ends, so you can line up a run and walk away. Stop
-halts the current turn and clears what is queued behind it.
+of interrupting, stacked dimmed above the input box with an X to drop it. Each
+one fires as the previous turn ends, so you can line up a run and walk away.
+Stop halts the current turn and clears what is queued behind it.
 
 **Scrolling.** The transcript follows new output only while you are already at
 the bottom. Scroll up mid-generation and it stays where you put it, with a jump
