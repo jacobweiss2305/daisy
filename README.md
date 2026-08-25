@@ -83,6 +83,27 @@ which took about three and a half minutes for a bf16 27B. Daisy retries `502`,
 been waiting. Every other status fails immediately, so a real error still
 surfaces at once.
 
+## Serving on Modal
+
+`serving/qwen38_modal.py` runs Qwen3.8-27B on one H100 with vLLM, behind the same
+OpenAI-compatible API.
+
+```bash
+modal secret create daisy-llm DAISY_API_KEY=$(openssl rand -hex 24)
+modal deploy serving/qwen38_modal.py
+```
+
+It sets `min_containers=1`, so a container stays up and there is no cold start.
+That bills 730 hours a month whether or not anyone is typing. `min_containers=0`
+with a long `scaledown_window` gives the same warm feel during a working session
+for roughly a quarter of the cost, and costs one wait each morning.
+
+Modal's managed Endpoints (`modal endpoint create`) are the easier path but always
+scale to zero, and expose no warm-container setting, which is why this app exists.
+They also serve through SGLang rather than vLLM.
+
+Stop it with `modal app stop -y daisy-qwen38`.
+
 ## The system prompt
 
 `daisy.systemPrompt` is yours to change. `Daisy: Edit System Prompt` in the
