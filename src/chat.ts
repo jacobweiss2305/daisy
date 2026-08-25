@@ -4,7 +4,7 @@ import { run, type AgentDeps, type AgentEvent } from './agent.ts';
 import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
-import { GATE_URL, OtelClient, TurnTrace, datasetFor, resolveOtel, spanId } from './otel.ts';
+import { OtelClient, TurnTrace, resolveOtel, resourceFor, spanId } from './otel.ts';
 import type { OtelConfig } from './otel.ts';
 
 type ToView =
@@ -166,7 +166,7 @@ export class ChatView implements vscode.WebviewViewProvider {
     } finally {
       this.active = undefined;
       this.sessions.save(this.session);
-      if (trace) this.otel.submit(trace.body(datasetFor(telemetry, root)));
+      if (trace) this.otel.submit(trace.body(resourceFor(telemetry, root)));
       post({ type: 'done' });
     }
   }
@@ -312,9 +312,10 @@ function otelConfig(): OtelConfig {
   const c = vscode.workspace.getConfiguration('daisy.telemetry');
   return resolveOtel({
     enabled: c.get('enabled', false),
-    apiKey: c.get('apiKey', ''),
-    baseUrl: c.get('baseUrl', GATE_URL),
-    dataset: c.get('dataset', 'daisy'),
+    endpoint: c.get('endpoint', ''),
+    headers: c.get('headers', {}),
+    serviceName: c.get('serviceName', 'daisy'),
+    resourceAttributes: c.get('resourceAttributes', {}),
     maxAttrBytes: c.get('maxAttrBytes', 32768),
   });
 }

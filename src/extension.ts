@@ -1,15 +1,16 @@
 import * as vscode from 'vscode';
 import { ChatView } from './chat.ts';
-import { GATE_URL, OtelClient, resolveOtel } from './otel.ts';
+import { OtelClient, resolveOtel } from './otel.ts';
 
 export function activate(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('daisy.telemetry');
   const client = new OtelClient({
     config: resolveOtel({
       enabled: config.get('enabled', false),
-      apiKey: config.get('apiKey', ''),
-      baseUrl: config.get('baseUrl', GATE_URL),
-      dataset: config.get('dataset', 'daisy'),
+      endpoint: config.get('endpoint', ''),
+      headers: config.get('headers', {}),
+      serviceName: config.get('serviceName', 'daisy'),
+      resourceAttributes: config.get('resourceAttributes', {}),
       maxAttrBytes: config.get('maxAttrBytes', 32768),
     }),
     // Re-check on every send so the setting takes effect live.

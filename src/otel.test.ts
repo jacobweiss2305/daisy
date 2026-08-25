@@ -4,14 +4,15 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  GATE_URL,
+  DAISY_VERSION,
+  type OtelConfig,
   OtelClient,
   TurnTrace,
-  datasetFor,
+  parseHeaders,
   resolveOtel,
-  sanitizeDataset,
+  resourceFor,
+  sanitizeName,
   spanId,
-  type OtelConfig,
 } from './otel.ts';
 
 /** The OTLP/HTTP JSON export request `TurnTrace.body()` produces. */
@@ -47,51 +48,81 @@ interface OtlpBody {
   }[];
 }
 
+const RESOURCE = { 'service.name': 'daisy', 'vendor.dataset': 'daisy-proj' };
+
 const SETTINGS = {
   enabled: true,
-  apiKey: 'zp_test',
-  baseUrl: 'https://gate.example',
-  dataset: 'daisy',
+  endpoint: 'https://collector.example',
+  headers: { 'x-api-key': 'secret' },
+  serviceName: 'daisy',
+  resourceAttributes: { 'vendor.dataset': 'daisy-{workspace}' },
   maxAttrBytes: 32768,
 };
 
-test('resolves the key from settings and trims it', () => {
+test('takes the endpoint and headers from settings', () => {
   const cfg = resolveOtel(SETTINGS);
   assert.equal(cfg.enabled, true);
-  assert.equal(cfg.apiKey, 'zp_test');
-  assert.equal(cfg.baseUrl, 'https://gate.example');
-  assert.equal(cfg.dataset, 'daisy');
+  assert.equal(cfg.endpoint, 'https://collector.example');
+  assert.deepEqual(cfg.headers, { 'x-api-key': 'secret' });
 });
 
-test('stays off without a key, even when enabled', () => {
-  assert.equal(resolveOtel({ ...SETTINGS, apiKey: '  ' }).enabled, false);
+test('stays off without an endpoint, even when enabled', () => {
+  assert.equal(resolveOtel({ ...SETTINGS, endpoint: '  ' }).enabled, false);
 });
 
-test('falls back to ZEROPROOF_API_KEY', () => {
-  const saved = process.env['ZEROPROOF_API_KEY'];
-  process.env['ZEROPROOF_API_KEY'] = 'zp_from_env';
+test('trims a trailing slash off the endpoint', () => {
+  assert.equal(resolveOtel({ ...SETTINGS, endpoint: 'https://c.example//' }).endpoint, 'https://c.example');
+});
+
+test('falls back to the standard OTLP environment variables', () => {
+  const saved = {
+    endpoint: process.env['OTEL_EXPORTER_OTLP_ENDPOINT'],
+    headers: process.env['OTEL_EXPORTER_OTLP_HEADERS'],
+  };
+  process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'https://from-env.example';
+  process.env['OTEL_EXPORTER_OTLP_HEADERS'] = 'authorization=Bearer t,x-scope=team';
+
   try {
-    assert.equal(resolveOtel({ ...SETTINGS, apiKey: '' }).apiKey, 'zp_from_env');
+    const cfg = resolveOtel({ ...SETTINGS, endpoint: '', headers: {} });
+    assert.equal(cfg.endpoint, 'https://from-env.example');
+    assert.deepEqual(cfg.headers, { authorization: 'Bearer t', 'x-scope': 'team' });
   } finally {
-    if (saved === undefined) delete process.env['ZEROPROOF_API_KEY'];
-    else process.env['ZEROPROOF_API_KEY'] = saved;
+    for (const [key, value] of [
+      ['OTEL_EXPORTER_OTLP_ENDPOINT', saved.endpoint],
+      ['OTEL_EXPORTER_OTLP_HEADERS', saved.headers],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 
-test('uses the gate URL when no base URL is set', () => {
-  assert.equal(resolveOtel({ ...SETTINGS, baseUrl: '   ' }).baseUrl, GATE_URL);
+test('parses header lists and skips malformed pairs', () => {
+  assert.deepEqual(parseHeaders('a=1, b = two ,,=x,c='), { a: '1', b: 'two' });
+  assert.deepEqual(parseHeaders(''), {});
 });
 
-test('sanitizes dataset names and falls back when nothing valid remains', () => {
-  assert.equal(sanitizeDataset('my repo!'), 'my-repo-');
-  assert.equal(sanitizeDataset('a'.repeat(120)).length, 80);
-  assert.equal(sanitizeDataset('???'), 'daisy');
+test('keeps a value containing = intact', () => {
+  assert.deepEqual(parseHeaders('authorization=Basic dXNlcjpwYXNz=='), {
+    authorization: 'Basic dXNlcjpwYXNz==',
+  });
 });
 
-test('keys the dataset by account workspace so rollouts stay attributable', () => {
+test('sanitizes names and falls back when nothing valid remains', () => {
+  assert.equal(sanitizeName('my repo!'), 'my-repo-');
+  assert.equal(sanitizeName('a'.repeat(120)).length, 80);
+  assert.equal(sanitizeName('???'), 'daisy');
+});
+
+test('substitutes the workspace into resource attributes', () => {
   const cfg = resolveOtel(SETTINGS);
-  assert.equal(datasetFor(cfg, 'c:/work/my-proj'), 'daisy-my-proj');
-  assert.equal(datasetFor(cfg, 'c:/work/a b'), 'daisy-a-b');
+
+  assert.deepEqual(resourceFor(cfg, 'c:/work/my-proj'), {
+    'service.name': 'daisy',
+    'service.version': DAISY_VERSION,
+    'vendor.dataset': 'daisy-my-proj',
+  });
+  assert.equal(resourceFor(cfg, 'c:/work/a b')['vendor.dataset'], 'daisy-a-b');
 });
 
 function oneLlmTrace(): TurnTrace {
@@ -123,12 +154,12 @@ function oneLlmTrace(): TurnTrace {
 }
 
 test('builds one trace per turn: agent root, llm, and tool spans', () => {
-  const body = oneLlmTrace().body('daisy-proj') as OtlpBody;
+  const body = oneLlmTrace().body(RESOURCE) as OtlpBody;
 
   const tags = Object.fromEntries(
     (body.resourceSpans[0]?.resource.attributes ?? []).map((a) => [a.key, a.value.stringValue ?? '']),
   );
-  assert.equal(tags['zeroproof.dataset'], 'daisy-proj');
+  assert.equal(tags['vendor.dataset'], 'daisy-proj');
   assert.equal(tags['service.name'], 'daisy');
 
   const spans = body.resourceSpans[0]?.scopeSpans[0]?.spans ?? [];
@@ -158,12 +189,12 @@ test('builds one trace per turn: agent root, llm, and tool spans', () => {
 
 test('the body is only produced once', () => {
   const trace = oneLlmTrace();
-  assert.notEqual(trace.body('daisy-proj'), null);
-  assert.equal(trace.body('daisy-proj'), null);
+  assert.notEqual(trace.body(RESOURCE), null);
+  assert.equal(trace.body(RESOURCE), null);
 });
 
-function spansOf(trace: TurnTrace, dataset: string): OtlpSpan[] {
-  const body = trace.body(dataset) as OtlpBody;
+function spansOf(trace: TurnTrace, resource: Record<string, string> = RESOURCE): OtlpSpan[] {
+  const body = trace.body(resource) as OtlpBody;
   return body.resourceSpans[0]?.scopeSpans[0]?.spans ?? [];
 }
 
@@ -178,7 +209,7 @@ test('clips oversized attribute values to the byte budget', () => {
     failed: false,
   });
 
-  const attrs = spansOf(trace, 'daisy-proj').at(-1)?.attributes ?? [];
+  const attrs = spansOf(trace).at(-1)?.attributes ?? [];
   const result = attrs.find((a) => a.key === 'gen_ai.tool.call.result');
   const clipped = result?.value.stringValue ?? '';
   assert.ok(clipped.endsWith('[truncated]'));
@@ -197,7 +228,7 @@ test('a failed tool is recorded with an exception event', () => {
     failed: true,
   });
 
-  const toolSpan = spansOf(trace, 'daisy-proj').at(-1);
+  const toolSpan = spansOf(trace).at(-1);
   assert.equal(toolSpan?.status.code, 2);
   assert.equal(toolSpan?.events[0]?.name, 'exception');
 });
@@ -225,7 +256,7 @@ function client(
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-test('sends the batch to /v1/traces with the zp key', async () => {
+test('sends the batch to /v1/traces with the configured headers', async () => {
   const seen: { url: string; init: RequestInit }[] = [];
   const c = client(
     mockFetch(async (url, init) => {
@@ -235,14 +266,14 @@ test('sends the batch to /v1/traces with the zp key', async () => {
     { current: true },
   );
 
-  c.submit(oneLlmTrace().body('daisy-proj'));
+  c.submit(oneLlmTrace().body(RESOURCE));
   await tick();
 
   assert.equal(seen.length, 1);
-  assert.equal(seen[0]?.url, 'https://gate.example/v1/traces');
+  assert.equal(seen[0]?.url, 'https://collector.example/v1/traces');
 
   const headers = seen[0]?.init.headers as Record<string, string> | undefined;
-  assert.equal(headers?.['x-api-key'], 'zp_test');
+  assert.equal(headers?.['x-api-key'], 'secret');
   assert.equal(headers?.['content-type'], 'application/json');
 
   const body = JSON.parse(String(seen[0]?.init.body)) as { resourceSpans: unknown[] };
@@ -260,7 +291,7 @@ test('does not send when telemetry is turned off', async () => {
     { current: false },
   );
 
-  c.submit(oneLlmTrace().body('daisy-proj'));
+  c.submit(oneLlmTrace().body(RESOURCE));
   await tick();
   assert.equal(calls, 0);
   assert.equal(c.pending, 0);
@@ -274,7 +305,7 @@ test('retries 5xx on the next flush and drops permanent 4xx', async () => {
     { current: true },
   );
 
-  c.submit(oneLlmTrace().body('daisy-proj'));
+  c.submit(oneLlmTrace().body(RESOURCE));
   await tick();
   assert.equal(c.pending, 1, '5xx is kept for retry');
 
@@ -283,7 +314,7 @@ test('retries 5xx on the next flush and drops permanent 4xx', async () => {
   assert.equal(c.pending, 0, 'the retry lands once the gate is healthy');
 
   status = 401;
-  c.submit(oneLlmTrace().body('daisy-proj'));
+  c.submit(oneLlmTrace().body(RESOURCE));
   await tick();
   assert.equal(c.pending, 0, 'a bad key is not retried forever');
   await c.shutdown();
@@ -300,8 +331,8 @@ test('ignores null bodies', async () => {
   );
 
   const trace = oneLlmTrace();
-  trace.body('daisy-proj');
-  c.submit(trace.body('daisy-proj')); // the second call yields null
+  trace.body(RESOURCE);
+  c.submit(trace.body(RESOURCE)); // the second call yields null
   await tick();
   assert.equal(calls, 0);
   await c.shutdown();
@@ -326,7 +357,7 @@ roundTrip('a turn body flattens to one rollout row in the gate parser', async ()
   const extractRows = mod.extractRows ?? mod.default?.extractRows;
   if (typeof extractRows !== 'function') throw new Error('gate parser import failed');
 
-  const body = oneLlmTrace().body('daisy-proj') as OtlpBody;
+  const body = oneLlmTrace().body(RESOURCE) as OtlpBody;
   const rows = extractRows(body.resourceSpans);
 
   assert.equal(rows.length, 1);

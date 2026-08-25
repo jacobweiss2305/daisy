@@ -3,68 +3,102 @@ import * as path from 'node:path';
 import type { LlmObservation, ToolObservation } from './agent.ts';
 
 /**
- * Optional rollout telemetry for the Zero Proof token gate.
+ * Optional turn telemetry over OTLP/HTTP JSON.
  *
- * When `daisy.telemetry.enabled`, each chat turn is recorded as one
- * OTLP/HTTP JSON trace in the shape the gate ingests: an agent root span
- * with the prompt and final answer, a `chat` span per model call, and an
- * `execute_tool` span per tool with its arguments and output. The gate
- * flattens each trace into one rollout row per (account, dataset, UTC day),
- * so a day of sessions becomes an analyzable dataset for building training
- * tasks.
+ * When `daisy.telemetry.enabled` and an endpoint is set, each chat turn is
+ * recorded as one trace: an agent root span with the prompt and final answer,
+ * a `chat` span per model call, and an `execute_tool` span per tool with its
+ * arguments and output. Where it goes, what headers it carries, and what
+ * resource attributes it declares are all configuration, so any OTLP collector
+ * or hosted backend works.
  *
- * This plugin is public, so nothing leaves the machine unless the user opts
- * in: the key comes from the user's own settings (or ZEROPROOF_API_KEY),
- * attribute values are clipped, and undelivered batches wait in a small
- * in-memory outbox rather than being retried forever. The gate names each
- * part file after its content, so a resent batch overwrites the identical
- * object instead of double-counting.
+ * This plugin is public, so nothing leaves the machine unless the user opts in:
+ * the endpoint and credentials come from the user's own settings or the
+ * standard OTEL_* variables, attribute values are clipped, and undelivered
+ * batches wait in a small in-memory outbox rather than being retried forever.
  *
- * The gate only accepts OTLP/HTTP JSON (protobuf gets a 415), so the
- * envelope is built by hand — that is all the SDK would add here.
+ * JSON rather than protobuf, built by hand: it is the encoding every collector
+ * accepts, and it is all the SDK would add here.
  */
-
-export const GATE_URL = 'https://wch04mgo2k.execute-api.us-east-1.amazonaws.com';
 
 export const DAISY_VERSION = '0.1.0'; // keep in sync with package.json
 
 export interface OtelSettings {
   enabled: boolean;
-  apiKey: string;
-  baseUrl: string;
-  dataset: string;
+  endpoint: string;
+  headers: Record<string, string>;
+  serviceName: string;
+  resourceAttributes: Record<string, string>;
   maxAttrBytes: number;
 }
 
-export interface OtelConfig {
-  enabled: boolean;
-  apiKey: string;
-  baseUrl: string;
-  dataset: string;
-  maxAttrBytes: number;
-}
+export type OtelConfig = OtelSettings;
 
-/** The key comes from settings, falling back to ZEROPROOF_API_KEY. */
+/**
+ * Settings win; otherwise the standard OTLP environment variables do, so an
+ * existing collector setup needs no extra configuration here.
+ */
 export function resolveOtel(s: OtelSettings): OtelConfig {
-  const apiKey = s.apiKey.trim() || process.env['ZEROPROOF_API_KEY']?.trim() || '';
+  const endpoint = (s.endpoint.trim() || env('OTEL_EXPORTER_OTLP_ENDPOINT')).replace(/\/+$/, '');
+  const headers = Object.keys(s.headers).length
+    ? s.headers
+    : parseHeaders(env('OTEL_EXPORTER_OTLP_HEADERS'));
+  const resourceAttributes = Object.keys(s.resourceAttributes).length
+    ? s.resourceAttributes
+    : parseHeaders(env('OTEL_RESOURCE_ATTRIBUTES'));
+
   return {
-    enabled: s.enabled && apiKey.length > 0,
-    apiKey,
-    baseUrl: (s.baseUrl.trim() || GATE_URL).replace(/\/+$/, ''),
-    dataset: sanitizeDataset(s.dataset.trim() || 'daisy'),
+    enabled: s.enabled && endpoint.length > 0,
+    endpoint,
+    headers,
+    serviceName: s.serviceName.trim() || 'daisy',
+    resourceAttributes,
     maxAttrBytes: s.maxAttrBytes,
   };
 }
 
-/** The gate's rule for dataset names, with a fallback for names that sanitize to nothing. */
-export function sanitizeDataset(name: string): string {
+function env(name: string): string {
+  return process.env[name]?.trim() ?? '';
+}
+
+/** The OTLP spec's `key=value,key2=value2` list, as used by the OTEL_* variables. */
+export function parseHeaders(raw: string): Record<string, string> {
+  const out: Record<string, string> = {};
+
+  for (const pair of raw.split(',')) {
+    const at = pair.indexOf('=');
+    if (at < 1) continue;
+
+    const key = pair.slice(0, at).trim();
+    const value = pair.slice(at + 1).trim();
+    if (key && value) out[key] = value;
+  }
+
+  return out;
+}
+
+export function sanitizeName(name: string): string {
   const clean = name.replace(/[^\w.-]/g, '-').slice(0, 80);
   return /\w/.test(clean) ? clean : 'daisy';
 }
 
-/** One dataset per (account, workspace), so rollouts stay attributable to a repo. */
-export function datasetFor(config: OtelConfig, workspaceRoot: string): string {
-  return `${config.dataset}-${sanitizeDataset(path.basename(workspaceRoot) || 'workspace')}`;
+/**
+ * Resource attributes for one workspace. A `{workspace}` placeholder in any
+ * value becomes the folder name, which is how a backend that groups by dataset
+ * gets one per repo without this file knowing what a dataset is.
+ */
+export function resourceFor(config: OtelConfig, workspaceRoot: string): Record<string, string> {
+  const workspace = sanitizeName(path.basename(workspaceRoot) || 'workspace');
+  const out: Record<string, string> = {
+    'service.name': config.serviceName,
+    'service.version': DAISY_VERSION,
+  };
+
+  for (const [key, value] of Object.entries(config.resourceAttributes)) {
+    out[key] = value.replaceAll('{workspace}', workspace);
+  }
+
+  return out;
 }
 
 export function spanId(): string {
@@ -187,7 +221,7 @@ export class TurnTrace {
     );
   }
 
-  body(dataset: string): unknown {
+  body(resource: Record<string, string>): unknown {
     if (this.closed) return null;
     this.closed = true;
 
@@ -202,7 +236,7 @@ export class TurnTrace {
       attributes: [
         this.attr('gen_ai.operation.name', 'invoke_agent'),
         this.attr('gen_ai.agent.name', 'daisy'),
-        this.attr('zeroproof.scenario_id', this.scenarioId),
+        this.attr('daisy.scenario_id', this.scenarioId),
         // Raw text: the gate wraps a non-JSON string itself, without this it double-wraps.
         this.attr('gen_ai.input.messages', this.inputText),
         this.attr('gen_ai.output.messages', JSON.stringify([{ role: 'assistant', content: this.finalText }])),
@@ -215,11 +249,7 @@ export class TurnTrace {
       resourceSpans: [
         {
           resource: {
-            attributes: [
-              this.attr('service.name', 'daisy'),
-              this.attr('service.version', DAISY_VERSION),
-              this.attr('zeroproof.dataset', dataset),
-            ],
+            attributes: Object.entries(resource).map(([key, value]) => this.attr(key, value)),
           },
           scopeSpans: [{ scope: { name: 'daisy' }, spans: [root, ...this.spans] }],
         },
@@ -299,7 +329,7 @@ function clip(value: string, max: number): string {
   return out + suffix;
 }
 
-const BATCH_CAP_BYTES = 8 * 1024 * 1024; // the gate 413s above this
+const BATCH_CAP_BYTES = 8 * 1024 * 1024; // collectors commonly 413 above this
 const OUTBOX_MAX = 8;
 const FLUSH_INTERVAL_MS = 5_000;
 const SEND_TIMEOUT_MS = 10_000;
@@ -371,9 +401,9 @@ export class OtelClient {
 
       let outcome: 'sent' | 'dropped' | 'retry';
       try {
-        const res = await this.fetchImpl(`${this.config.baseUrl}/v1/traces`, {
+        const res = await this.fetchImpl(`${this.config.endpoint}/v1/traces`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-api-key': this.config.apiKey },
+          headers: { 'content-type': 'application/json', ...this.config.headers },
           body: part.body,
           signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         });

@@ -125,28 +125,39 @@
         "daisy.telemetry.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Record each chat turn as a rollout trace and send it to the Zero Proof token gate. Off by default; a key is required."
-        },
-        "daisy.telemetry.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Zero Proof API key (zp_...). Falls back to the ZEROPROOF_API_KEY environment variable."
-        },
-        "daisy.telemetry.baseUrl": {
-          "type": "string",
-          "default": "https://wch04mgo2k.execute-api.us-east-1.amazonaws.com",
-          "description": "Zero Proof token gate base URL."
-        },
-        "daisy.telemetry.dataset": {
-          "type": "string",
-          "default": "daisy",
-          "description": "Dataset prefix. Each workspace lands in its own dataset: <prefix>-<workspace>."
+          "markdownDescription": "Record each chat turn as an OTLP trace and send it to `daisy.telemetry.endpoint`."
         },
         "daisy.telemetry.maxAttrBytes": {
           "type": "integer",
           "default": 32768,
           "minimum": 1024,
-          "description": "Largest single span attribute (a tool output, a prompt) before it is clipped."
+          "description": "Largest single span attribute before it is clipped."
+        },
+        "daisy.telemetry.endpoint": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "OTLP/HTTP base URL. Traces are posted to `<endpoint>/v1/traces`. Falls back to `OTEL_EXPORTER_OTLP_ENDPOINT`. Empty turns telemetry off."
+        },
+        "daisy.telemetry.headers": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Headers sent with each export, for whatever auth your backend wants. Falls back to `OTEL_EXPORTER_OTLP_HEADERS`, which keeps credentials out of settings."
+        },
+        "daisy.telemetry.serviceName": {
+          "type": "string",
+          "default": "daisy",
+          "description": "The service.name resource attribute."
+        },
+        "daisy.telemetry.resourceAttributes": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra resource attributes. `{workspace}` in a value becomes the folder name, so a backend that groups by dataset gets one per repo. Falls back to `OTEL_RESOURCE_ATTRIBUTES`."
         }
       }
     },

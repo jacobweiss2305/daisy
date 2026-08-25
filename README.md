@@ -141,10 +141,11 @@ repo with a clean tree so `git diff` and `git checkout .` are available.
 | `daisy.fileSearchLimit` | 3000 | Files offered to `@` autocomplete |
 | `daisy.sessionsKept` | 30 | Chats kept before the oldest are dropped |
 | `daisy.warmupTimeout` | 300 | Seconds to retry an endpoint that is starting |
-| `daisy.telemetry.enabled` | false | Send each turn as a rollout trace |
-| `daisy.telemetry.apiKey` | | Zero Proof key, or `ZEROPROOF_API_KEY` |
-| `daisy.telemetry.baseUrl` | the gate | Where traces are posted |
-| `daisy.telemetry.dataset` | `daisy` | Dataset prefix, one per workspace |
+| `daisy.telemetry.enabled` | false | Send each turn as an OTLP trace |
+| `daisy.telemetry.endpoint` | | OTLP/HTTP base URL, or `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `daisy.telemetry.headers` | none | Export headers, or `OTEL_EXPORTER_OTLP_HEADERS` |
+| `daisy.telemetry.serviceName` | `daisy` | The `service.name` attribute |
+| `daisy.telemetry.resourceAttributes` | none | Extra resource attributes, `{workspace}` expanded |
 | `daisy.telemetry.maxAttrBytes` | 32768 | Largest span attribute before clipping |
 
 The four size and time limits are the ones that quietly change answers rather
@@ -192,13 +193,13 @@ npm test
 ```
 
 Node 24 runs the TypeScript directly, so there is no test framework to install.
-60 tests cover the parts that are not obviously correct by reading them: SSE
+62 tests cover the parts that are not obviously correct by reading them: SSE
 delta reassembly, splitting reasoning out of the token stream, cold-start retry,
 the path guard, mention expansion, chat storage and pruning, the markdown
 renderer, and the telemetry envelope.
 
-One test skips unless the ZeroProof repo is checked out beside this one, where it
-round-trips a trace through the real gate parser instead of a copy of it.
+One test skips unless a sibling repo is checked out beside this one, where it
+round-trips a trace through a real ingest parser instead of a copy of it.
 
 The renderer is browser code, so its tests load `media/markdown.js` through a
 small DOM shim and exercise the shipped file rather than a copy.
@@ -209,15 +210,29 @@ would accept them; `node --test` will not.
 
 ## Telemetry
 
-Off unless you turn it on. Nothing leaves the machine until you set
-`daisy.telemetry.enabled` and supply your own key, in settings or through
-`ZEROPROOF_API_KEY`.
+Off unless you turn it on, and vendor-neutral: it speaks OTLP/HTTP JSON to
+whatever endpoint you point it at, so any collector or hosted backend works.
 
-With it on, each turn is recorded as one OTLP/HTTP JSON trace: an agent root
-span carrying the prompt and final answer, a `chat` span per model call, and an
-`execute_tool` span per tool with its arguments and output. The Zero Proof gate
-flattens a trace into one rollout row per account, dataset, and UTC day, so a
-week of real sessions becomes a dataset you can mine for training tasks.
+```json
+"daisy.telemetry.enabled": true,
+"daisy.telemetry.endpoint": "https://collector.example",
+"daisy.telemetry.resourceAttributes": { "acme.dataset": "daisy-{workspace}" }
+```
+
+Traces are posted to `<endpoint>/v1/traces`. Each turn becomes one trace: an
+agent root span carrying the prompt and final answer, a `chat` span per model
+call, and an `execute_tool` span per tool with its arguments and output.
+
+Credentials go in `daisy.telemetry.headers` as whatever header your backend
+wants. All three settings fall back to the standard variables,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and
+`OTEL_RESOURCE_ATTRIBUTES`, which is the better place for a key: an existing
+collector setup needs no configuration here, and the secret stays out of a
+settings file.
+
+`{workspace}` in a resource attribute value becomes the folder name, so a
+backend that groups by dataset gets one per repo without this extension knowing
+what a dataset is.
 
 Span attributes are clipped at `daisy.telemetry.maxAttrBytes`, and undelivered
 batches wait in a small in-memory outbox rather than retrying forever. Delivery
