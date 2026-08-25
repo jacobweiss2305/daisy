@@ -10,24 +10,31 @@ const session = document.getElementById('session');
 const startNew = document.getElementById('new');
 const mentions = document.getElementById('mentions');
 
+const SEEDS = [
+  'What does this project do?',
+  'Find the riskiest code here and explain why',
+  'Run the tests and fix what fails',
+];
+
 const cards = new Map();
 let modelRefs = [];
 let files = [];
 let matches = [];
 let highlighted = 0;
 let openBubble = null;
+let openThink = null;
 let openRaw = '';
 let frame = 0;
-let openThink = null;
 let busy = false;
 
 refresh.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 startNew.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+session.addEventListener('change', () => vscode.postMessage({ type: 'session', id: session.value }));
+
 model.addEventListener('change', () => {
   const ref = modelRefs[Number(model.value)];
   if (ref) vscode.postMessage({ type: 'model', ref });
 });
-session.addEventListener('change', () => vscode.postMessage({ type: 'session', id: session.value }));
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -40,14 +47,18 @@ form.addEventListener('submit', (event) => {
   const text = prompt.value.trim();
   if (!text) return;
 
-  bubble('user').textContent = text;
+  say('user', 'You').textContent = text;
   prompt.value = '';
+  grow();
   hideMentions();
   setBusy(true);
   vscode.postMessage({ type: 'send', text });
 });
 
-prompt.addEventListener('input', updateMentions);
+prompt.addEventListener('input', () => {
+  grow();
+  updateMentions();
+});
 
 prompt.addEventListener('keydown', (event) => {
   if (matches.length) {
@@ -81,7 +92,7 @@ window.addEventListener('message', ({ data }) => {
     case 'text':
       openThink = null;
       if (!openBubble) {
-        openBubble = bubble('assistant');
+        openBubble = say('assistant', 'Daisy');
         openRaw = '';
       }
       openRaw += data.text;
@@ -90,14 +101,14 @@ window.addEventListener('message', ({ data }) => {
 
     case 'think':
       closeBubble();
-      if (!openThink) openThink = thinkBlock();
-      openThink.append(data.text);
+      if (!openThink) openThink = thinking();
+      openThink.add(data.text);
       break;
 
     case 'tool':
       closeBubble();
       openThink = null;
-      cards.set(data.id, toolCard(data));
+      cards.set(data.id, activity(data));
       break;
 
     case 'result':
@@ -108,11 +119,10 @@ window.addEventListener('message', ({ data }) => {
     case 'status':
       closeBubble();
       openThink = null;
-      bubble('status').textContent = data.text;
+      say('status').textContent = data.text;
       break;
 
     case 'models':
-      modelRefs = data.items;
       fillModels(data.items, data.selected);
       break;
 
@@ -121,7 +131,7 @@ window.addEventListener('message', ({ data }) => {
         session,
         data.items.map((s) => ({ value: s.id, label: s.title })),
         data.active,
-        'no chats',
+        'New chat',
       );
       break;
 
@@ -131,10 +141,11 @@ window.addEventListener('message', ({ data }) => {
       closeBubble();
       openThink = null;
       for (const item of data.items) {
-        const el = bubble(item.role);
+        const el = say(item.role, item.role === 'user' ? 'You' : 'Daisy');
         if (item.role === 'assistant') el.append(renderMarkdown(item.text));
         else el.textContent = item.text;
       }
+      if (!data.items.length) blank();
       break;
 
     case 'files':
@@ -150,6 +161,156 @@ window.addEventListener('message', ({ data }) => {
 
   log.scrollTop = log.scrollHeight;
 });
+
+/** A turn: small role label above the content. */
+function say(role, who) {
+  document.getElementById('blank')?.remove();
+
+  const turn = document.createElement('div');
+  turn.className = 'turn';
+
+  if (who) {
+    const tag = document.createElement('div');
+    tag.className = 'who';
+    tag.textContent = who;
+    turn.append(tag);
+  }
+
+  const body = document.createElement('div');
+  body.className = `msg ${role}`;
+  turn.append(body);
+  log.append(turn);
+  return body;
+}
+
+function blank() {
+  if (document.getElementById('blank')) return;
+
+  const box = document.createElement('div');
+  box.id = 'blank';
+
+  const title = document.createElement('h1');
+  title.textContent = 'Daisy';
+
+  const copy = document.createElement('p');
+  copy.textContent =
+    'She reads and writes files in this folder and runs commands. Type @ to attach a file.';
+
+  const seeds = document.createElement('div');
+  seeds.className = 'seeds';
+
+  for (const text of SEEDS) {
+    const seed = document.createElement('button');
+    seed.type = 'button';
+    seed.textContent = text;
+    seed.addEventListener('click', () => {
+      prompt.value = text;
+      grow();
+      prompt.focus();
+    });
+    seeds.append(seed);
+  }
+
+  box.append(title, copy, seeds);
+  log.append(box);
+}
+
+/** Turns a tool call into something a person reads: `Read src/agent.ts`. */
+function describe(name, raw) {
+  let args = {};
+  try {
+    args = JSON.parse(raw || '{}');
+  } catch {
+    args = {};
+  }
+
+  switch (name) {
+    case 'read_file':
+      return `Read ${args.path ?? ''}`;
+    case 'write_file':
+      return `Wrote ${args.path ?? ''}`;
+    case 'delete_file':
+      return `Deleted ${args.path ?? ''}`;
+    case 'list_dir':
+      return `Listed ${args.path || '.'}`;
+    case 'run_command':
+      return `$ ${args.command ?? ''}`;
+    default:
+      return `${name} ${raw}`.trim();
+  }
+}
+
+function activity({ name, args }) {
+  document.getElementById('blank')?.remove();
+
+  const row = document.createElement('div');
+  row.className = 'act running';
+
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+
+  const what = document.createElement('span');
+  what.className = 'what';
+  what.textContent = describe(name, args);
+
+  row.append(dot, what);
+
+  const out = document.createElement('pre');
+  out.className = 'out';
+  out.hidden = true;
+
+  row.addEventListener('click', () => {
+    out.hidden = !out.hidden;
+  });
+
+  log.append(row, out);
+
+  return {
+    settle(text, failed) {
+      row.className = failed ? 'act failed' : 'act done';
+      out.textContent = text || '(no output)';
+      if (failed) out.hidden = false;
+    },
+  };
+}
+
+function thinking() {
+  const el = document.createElement('details');
+  el.className = 'think';
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'Thinking';
+
+  const body = document.createElement('pre');
+  el.append(summary, body);
+  log.append(el);
+
+  return {
+    add(text) {
+      body.textContent += text;
+    },
+  };
+}
+
+/** One render a frame, so a long reply does not reparse per token. */
+function draw() {
+  if (frame) return;
+  frame = requestAnimationFrame(() => {
+    frame = 0;
+    if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
+    log.scrollTop = log.scrollHeight;
+  });
+}
+
+function closeBubble() {
+  if (frame) {
+    cancelAnimationFrame(frame);
+    frame = 0;
+  }
+  if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
+  openBubble = null;
+  openRaw = '';
+}
 
 function updateMentions() {
   const token = tokenAtCursor();
@@ -203,6 +364,7 @@ function accept(path) {
   const caret = before.length + path.length + 2;
   prompt.setSelectionRange(caret, caret);
   hideMentions();
+  grow();
   prompt.focus();
 }
 
@@ -214,11 +376,16 @@ function fillModels(items, selected) {
   const spread = new Set(refs.map((r) => r.endpoint)).size > 1;
   const entries = refs.map((r, i) => ({
     value: String(i),
-    label: spread ? `${r.model} · ${r.endpoint}` : r.model,
+    label: spread ? `${short(r.model)} · ${r.endpoint}` : short(r.model),
   }));
 
   const at = refs.findIndex((r) => r.endpoint === selected.endpoint && r.model === selected.model);
-  fill(model, entries, String(at), 'no models found');
+  fill(model, entries, String(at), 'no models');
+}
+
+/** Vendor prefixes eat width a sidebar does not have. */
+function short(name) {
+  return name.includes('/') ? name.slice(name.lastIndexOf('/') + 1) : name;
 }
 
 function fill(select, entries, selected, empty) {
@@ -242,80 +409,17 @@ function fill(select, entries, selected, empty) {
   );
 }
 
-/** Coalesces re-renders to one a frame so a long reply does not reparse per token. */
-function draw() {
-  if (frame) return;
-  frame = requestAnimationFrame(() => {
-    frame = 0;
-    if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
-    log.scrollTop = log.scrollHeight;
-  });
-}
-
-function closeBubble() {
-  if (frame) {
-    cancelAnimationFrame(frame);
-    frame = 0;
-  }
-  if (openBubble) openBubble.replaceChildren(renderMarkdown(openRaw));
-  openBubble = null;
-  openRaw = '';
-}
-
-function bubble(role) {
-  const el = document.createElement('div');
-  el.className = `msg ${role}`;
-  log.append(el);
-  return el;
-}
-
-function thinkBlock() {
-  const el = document.createElement('details');
-  el.className = 'think';
-
-  const summary = document.createElement('summary');
-  summary.textContent = 'Thinking';
-
-  const body = document.createElement('pre');
-  el.append(summary, body);
-  log.append(el);
-
-  return {
-    append(text) {
-      body.textContent += text;
-    },
-  };
-}
-
-function toolCard({ name, args }) {
-  const el = document.createElement('details');
-  el.className = 'tool';
-
-  const summary = document.createElement('summary');
-  summary.textContent = `${name} ${oneLine(args)}`;
-
-  const output = document.createElement('pre');
-  output.textContent = 'running';
-
-  el.append(summary, output);
-  log.append(el);
-
-  return {
-    settle(text, failed) {
-      el.classList.toggle('failed', failed);
-      output.textContent = text || '(empty)';
-    },
-  };
-}
-
 function setBusy(value) {
   busy = value;
-  submit.textContent = value ? 'Stop' : 'Send';
+  document.body.classList.toggle('busy', value);
+  submit.title = value ? 'Stop' : 'Send';
 }
 
-function oneLine(args) {
-  const flat = args.replace(/\s+/g, ' ').trim();
-  return flat.length > 60 ? `${flat.slice(0, 60)}...` : flat;
+function grow() {
+  prompt.style.height = 'auto';
+  prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`;
 }
 
+blank();
+grow();
 vscode.postMessage({ type: 'ready' });

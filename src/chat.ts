@@ -183,22 +183,29 @@ export class ChatView implements vscode.WebviewViewProvider {
 <link rel="stylesheet" href="${uri('main.css')}">
 </head>
 <body>
-<div id="top">
-  <div class="row">
-    <select id="session" title="Chat"></select>
-    <button id="new" type="button" title="Start a new chat">New</button>
-  </div>
-  <div class="row">
-    <select id="model" title="Model"></select>
-    <button id="refresh" type="button" title="Reload model list">Reload</button>
-  </div>
-</div>
+<header id="chrome">
+  <select id="session" title="Switch chat"></select>
+  <button id="new" class="icon" type="button" title="New chat" aria-label="New chat">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
+  </button>
+</header>
+
 <div id="log"></div>
+
 <form id="composer">
   <div id="mentions" hidden></div>
-  <textarea id="prompt" rows="3" placeholder="Ask about this workspace, @ to attach a file"></textarea>
-  <button id="submit" type="submit">Send</button>
+  <div class="field">
+    <textarea id="prompt" rows="1" placeholder="Ask anything"></textarea>
+    <button id="submit" class="send" type="submit" title="Send" aria-label="Send">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M3.8 7.7 8 3.5l4.2 4.2"/></svg>
+    </button>
+  </div>
+  <div id="foot">
+    <select id="model" title="Model"></select>
+    <button id="refresh" class="quiet" type="button" title="Reload models">Reload</button>
+  </div>
 </form>
+
 <script nonce="${nonce}" src="${uri('markdown.js')}"></script>
 <script nonce="${nonce}" src="${uri('main.js')}"></script>
 </body>
