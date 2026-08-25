@@ -390,7 +390,9 @@ roundTrip('a turn body flattens to one rollout row in the ingest parser', async 
   const row = rows[0] as Record<string, unknown>;
   assert.equal(row['prompt'], 'fix the login bug');
   assert.equal(row['final_text'], 'on it');
-  assert.equal(row['scenario_id'], 'chat-1:1');
+  // A chat turn is one attempt at one task, not the same task attempted twice,
+  // so there is no scenario to report and the consumer groups by prompt.
+  assert.equal(row['scenario_id'], null);
   const info = row['info'] as Record<string, unknown>;
   assert.equal(info['model'], 'qwen3.8-27b');
   assert.equal(info['input_tokens'], 12);
