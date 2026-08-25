@@ -3,6 +3,10 @@
 Managed Endpoints always scale to zero and expose no warm-container setting, so
 the only way to hold one up is to keep asking it for something.
 
+    modal secret create daisy-proxy \
+        MODAL_PROXY_TOKEN=wk-xxx.ws-yyy \
+        DAISY_ENDPOINT=https://<workspace>--<endpoint>.modal.direct/v1/models
+
     modal deploy serving/keepalive.py
     modal app stop -y daisy-keepalive     # to stop paying for an idle GPU
 """
@@ -12,7 +16,6 @@ import urllib.request
 
 import modal
 
-ENDPOINT = "https://silvia--ep-qwen3-8-27b-server.us-west.modal.direct/v1/models"
 EVERY_SECONDS = 60
 
 app = modal.App("daisy-keepalive")
@@ -27,8 +30,10 @@ image = modal.Image.debian_slim(python_version="3.12")
     timeout=120,
 )
 def ping() -> None:
+    # Read at call time: the secret exists in the container, not on the machine
+    # running `modal deploy`.
     request = urllib.request.Request(
-        ENDPOINT,
+        os.environ["DAISY_ENDPOINT"],
         headers={"Authorization": f"Bearer {os.environ['MODAL_PROXY_TOKEN']}"},
     )
 

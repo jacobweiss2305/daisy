@@ -204,7 +204,14 @@ cost, at the price of one wait each morning.
 Modal's managed Endpoints (`modal endpoint create`) are easier to stand up but
 always scale to zero and expose no warm-container setting.
 `serving/keepalive.py` holds one warm by pinging it every 60 seconds, which is
-the only lever that product offers. Managed Endpoints also serve through SGLang
+the only lever that product offers. It reads the endpoint URL and token from the
+`daisy-proxy` secret, so neither is in this repo:
+
+```bash
+modal secret create daisy-proxy     MODAL_PROXY_TOKEN=wk-xxx.ws-yyy     DAISY_ENDPOINT=https://<workspace>--<endpoint>.modal.direct/v1/models
+modal deploy serving/keepalive.py
+```
+ Managed Endpoints also serve through SGLang
 rather than vLLM, and take a workspace proxy token as the API key. That token
 must be scoped to the endpoint's environment or every request returns
 `401 Webhook token not found`:
