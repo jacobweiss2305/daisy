@@ -15,7 +15,8 @@ type ToView =
   | { type: 'sessions'; items: { id: string; title: string }[]; active: string }
   | { type: 'history'; items: { role: 'user' | 'assistant'; text: string }[] }
   | { type: 'files'; items: string[] }
-  | { type: 'endpoints'; items: Endpoint[] }
+  | { type: 'config'; endpoints: Endpoint[]; systemPrompt: string }
+  | { type: 'chats'; items: { id: string; title: string; updatedAt: number; turns: number }[]; active: string }
   | { type: 'done' };
 
 type FromView =
@@ -24,7 +25,8 @@ type FromView =
   | { type: 'session'; id: string }
   | { type: 'new' }
   | { type: 'refresh' }
-  | { type: 'saveEndpoints'; items: Endpoint[] }
+  | { type: 'saveConfig'; endpoints: Endpoint[]; systemPrompt: string }
+  | { type: 'deleteChat'; id: string }
   | { type: 'ready' }
   | { type: 'cancel' };
 
@@ -57,7 +59,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       case 'ready':
         this.sendSessions(webview);
         this.sendHistory(webview);
-        this.sendEndpoints(webview);
+        this.sendConfig(webview);
         void this.sendModels(webview);
         void this.sendFiles(webview);
         break;
@@ -83,15 +85,23 @@ export class ChatView implements vscode.WebviewViewProvider {
       case 'refresh':
         void this.sendModels(webview);
         break;
-      case 'saveEndpoints': {
-        const clean = message.items.filter((e) => e.name.trim() && e.baseUrl.trim());
-        void vscode.workspace
-          .getConfiguration('daisy')
+      case 'saveConfig': {
+        const clean = message.endpoints.filter((e) => e.name.trim() && e.baseUrl.trim());
+        const config = vscode.workspace.getConfiguration('daisy');
+        void config.update('systemPrompt', message.systemPrompt, vscode.ConfigurationTarget.Global);
+        void config
           .update('endpoints', clean, vscode.ConfigurationTarget.Global)
           .then(() => {
-            this.sendEndpoints(webview);
+            this.sendConfig(webview);
             return this.sendModels(webview);
           });
+        break;
+      }
+      case 'deleteChat': {
+        this.sessions.remove(message.id);
+        this.session = this.sessions.active();
+        this.sendSessions(webview);
+        this.sendHistory(webview);
         break;
       }
       case 'cancel':
@@ -141,11 +151,17 @@ export class ChatView implements vscode.WebviewViewProvider {
   }
 
   private sendSessions(webview: vscode.Webview): void {
-    void webview.postMessage({
-      type: 'sessions',
-      items: this.sessions.list().map(({ id, title }) => ({ id, title })),
-      active: this.session.id,
-    } satisfies ToView);
+    const items = this.sessions
+      .list()
+      .map(({ id, title, updatedAt, messages }) => ({
+        id,
+        title,
+        updatedAt,
+        turns: messages.filter((m) => m.role === 'user').length,
+      }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+
+    void webview.postMessage({ type: 'chats', items, active: this.session.id } satisfies ToView);
   }
 
   private sendHistory(webview: vscode.Webview): void {
@@ -160,10 +176,12 @@ export class ChatView implements vscode.WebviewViewProvider {
     void webview.postMessage({ type: 'history', items } satisfies ToView);
   }
 
-  private sendEndpoints(webview: vscode.Webview): void {
+  private sendConfig(webview: vscode.Webview): void {
+    const { endpoints, system } = settings();
     void webview.postMessage({
-      type: 'endpoints',
-      items: settings().endpoints,
+      type: 'config',
+      endpoints,
+      systemPrompt: system,
     } satisfies ToView);
   }
 
@@ -216,7 +234,10 @@ export class ChatView implements vscode.WebviewViewProvider {
 </head>
 <body>
 <header id="chrome">
-  <select id="session" title="Switch chat"></select>
+  <button id="title" class="title" type="button" title="All chats">
+    <span id="titleText">New chat</span>
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg>
+  </button>
   <button id="new" class="icon" type="button" title="New chat" aria-label="New chat">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
   </button>
@@ -227,6 +248,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
 <div id="log"></div>
 <div id="settings" hidden></div>
+<div id="chats" hidden></div>
 
 <form id="composer">
   <div id="mentions" hidden></div>

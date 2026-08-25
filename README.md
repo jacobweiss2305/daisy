@@ -37,9 +37,9 @@ Defaults assume Ollama on `localhost:11434`:
 ollama pull hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL
 ```
 
-The gear in the panel header holds both the model chooser and the endpoint
-editor: name, base URL, and API key, with add and remove. Opening it re-reads
-what each endpoint serves. `daisy.endpoints` holds objects, so the settings UI
+The gear holds the model chooser, the system prompt, and the endpoint editor:
+name, base URL, and API key, with add and remove. Opening it re-reads what each
+endpoint serves. `daisy.endpoints` holds objects, so the settings UI
 falls back to raw JSON for it, which is why the panel has its own form.
 
 Daisy talks to several servers at once. `daisy.endpoints` is a list, and the
@@ -120,9 +120,13 @@ to fall back to the default.
 
 ## Using the panel
 
-**Chats.** The top dropdown switches between conversations and New starts a fresh
-one. Each is named after its first message and stored in workspace state, so they
-are scoped to the folder you opened and survive a reload. The last 30 are kept.
+**Chats.** The title in the header opens the chat list: grouped by recency, with
+message counts and delete on each row. `+` starts a fresh one. Each chat is named
+after its first message and stored in workspace state, so they are scoped to the
+folder you opened and survive a reload. The last 30 are kept.
+
+Starting a chat discards any earlier one you never typed in, so the list holds
+conversations rather than a pile of empty "New chat" rows.
 
 **Attaching files.** Type `@` in the composer to search the workspace. Arrow keys
 move, Enter or Tab accepts, Escape dismisses. On send, each mentioned file is read

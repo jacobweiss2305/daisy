@@ -4,6 +4,7 @@ import type { Message } from './llm.ts';
 export interface Session {
   id: string;
   title: string;
+  updatedAt: number;
   messages: Message[];
 }
 
@@ -36,15 +37,28 @@ export class Sessions {
     return all.find((s) => s.id === id) ?? all[0] ?? this.create();
   }
 
+  /** Starting a chat clears out any earlier one that was never used. */
   create(): Session {
     const session: Session = {
       id: randomUUID(),
       title: 'New chat',
+      updatedAt: Date.now(),
       messages: [],
     };
-    void this.store.update(ALL, [session, ...this.list()].slice(0, this.kept));
+
+    const used = this.list().filter(started);
+    void this.store.update(ALL, [session, ...used].slice(0, this.kept));
     void this.store.update(ACTIVE, session.id);
     return session;
+  }
+
+  remove(id: string): void {
+    const left = this.list().filter((s) => s.id !== id);
+    void this.store.update(ALL, left);
+
+    if (this.store.get<string>(ACTIVE, '') === id) {
+      void this.store.update(ACTIVE, left[0]?.id ?? '');
+    }
   }
 
   select(id: string): Session {
@@ -54,6 +68,7 @@ export class Sessions {
 
   save(session: Session): void {
     session.title = titleOf(session);
+    session.updatedAt = Date.now();
     void this.store.update(
       ALL,
       this.list().map((s) => (s.id === session.id ? session : s)),
@@ -69,4 +84,9 @@ export function titleOf(session: Session): string {
   const line = first.content.replace(/\s+/g, ' ').trim();
   if (!line) return 'New chat';
   return line.length > 44 ? `${line.slice(0, 44)}...` : line;
+}
+
+/** A chat the user actually said something in. */
+export function started(session: Session): boolean {
+  return session.messages.some((m) => m.role === 'user');
 }

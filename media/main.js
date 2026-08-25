@@ -4,7 +4,9 @@ const log = document.getElementById('log');
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const submit = document.getElementById('submit');
-const session = document.getElementById('session');
+const titleBtn = document.getElementById('title');
+const titleText = document.getElementById('titleText');
+const chats = document.getElementById('chats');
 const startNew = document.getElementById('new');
 const mentions = document.getElementById('mentions');
 const gear = document.getElementById('gear');
@@ -28,19 +30,31 @@ let frame = 0;
 let busy = false;
 let endpoints = [];
 let picked = { endpoint: '', model: '' };
+let systemPrompt = '';
+let chatList = [];
+let activeChat = '';
 
-startNew.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
-
-gear.addEventListener('click', () => {
-  settings.hidden = !settings.hidden;
-  log.hidden = !settings.hidden;
-  if (settings.hidden) return;
-
-  // Opening settings is the moment to re-read what each endpoint serves.
-  vscode.postMessage({ type: 'refresh' });
-  renderSettings();
+startNew.addEventListener('click', () => {
+  show('log');
+  vscode.postMessage({ type: 'new' });
 });
-session.addEventListener('change', () => vscode.postMessage({ type: 'session', id: session.value }));
+
+gear.addEventListener('click', () => show(settings.hidden ? 'settings' : 'log'));
+titleBtn.addEventListener('click', () => show(chats.hidden ? 'chats' : 'log'));
+
+/** Exactly one of the three panes is visible at a time. */
+function show(view) {
+  log.hidden = view !== 'log';
+  settings.hidden = view !== 'settings';
+  chats.hidden = view !== 'chats';
+
+  if (view === 'settings') {
+    // Opening settings is the moment to re-read what each endpoint serves.
+    vscode.postMessage({ type: 'refresh' });
+    renderSettings();
+  }
+  if (view === 'chats') renderChats();
+}
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -134,16 +148,16 @@ window.addEventListener('message', ({ data }) => {
       if (!settings.hidden) renderSettings();
       break;
 
-    case 'sessions':
-      fill(
-        session,
-        data.items.map((s) => ({ value: s.id, label: s.title })),
-        data.active,
-        'New chat',
-      );
+    case 'chats':
+      chatList = data.items;
+      activeChat = data.active;
+      titleText.textContent =
+        data.items.find((c) => c.id === data.active)?.title ?? 'New chat';
+      if (!chats.hidden) renderChats();
       break;
 
     case 'history':
+      show('log');
       log.replaceChildren();
       cards.clear();
       closeBubble();
@@ -160,8 +174,9 @@ window.addEventListener('message', ({ data }) => {
       files = data.items;
       break;
 
-    case 'endpoints':
-      endpoints = data.items.map((e) => ({ ...e }));
+    case 'config':
+      endpoints = data.endpoints.map((e) => ({ ...e }));
+      systemPrompt = data.systemPrompt;
       if (!settings.hidden) renderSettings();
       break;
 
@@ -444,6 +459,23 @@ function renderSettings() {
 
   settings.append(choose);
 
+  const promptTitle = document.createElement('h2');
+  promptTitle.textContent = 'System prompt';
+  settings.append(promptTitle);
+
+  const promptNote = document.createElement('p');
+  promptNote.textContent = 'Sent ahead of every message, in this and existing chats.';
+  settings.append(promptNote);
+
+  const promptBox = document.createElement('textarea');
+  promptBox.className = 'prompt-edit';
+  promptBox.rows = 6;
+  promptBox.value = systemPrompt;
+  promptBox.addEventListener('input', () => {
+    systemPrompt = promptBox.value;
+  });
+  settings.append(promptBox);
+
   const title = document.createElement('h2');
   title.textContent = 'Endpoints';
   settings.append(title);
@@ -508,13 +540,98 @@ function renderSettings() {
   save.className = 'primary';
   save.textContent = 'Save';
   save.addEventListener('click', () => {
-    vscode.postMessage({ type: 'saveEndpoints', items: endpoints });
-    settings.hidden = true;
-    log.hidden = false;
+    vscode.postMessage({ type: 'saveConfig', endpoints, systemPrompt });
+    show('log');
   });
 
   row.append(add, save);
   settings.append(row);
+}
+
+/** Chats as a browsable list: recency groups, turn counts, delete on the row. */
+function renderChats() {
+  chats.replaceChildren();
+
+  const title = document.createElement('h2');
+  title.textContent = 'Chats';
+  chats.append(title);
+
+  if (!chatList.length) {
+    const none = document.createElement('p');
+    none.textContent = 'No chats yet.';
+    chats.append(none);
+    return;
+  }
+
+  let bucket = '';
+  for (const chat of chatList) {
+    const group = groupOf(chat.updatedAt);
+    if (group !== bucket) {
+      bucket = group;
+      const heading = document.createElement('div');
+      heading.className = 'group';
+      heading.textContent = group;
+      chats.append(heading);
+    }
+
+    const row = document.createElement('div');
+    row.className = chat.id === activeChat ? 'chat on' : 'chat';
+
+    const text = document.createElement('div');
+    text.className = 'text';
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = chat.title;
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `${chat.turns} ${chat.turns === 1 ? 'message' : 'messages'} · ${ago(chat.updatedAt)}`;
+
+    text.append(name, meta);
+
+    const drop = document.createElement('button');
+    drop.type = 'button';
+    drop.className = 'drop';
+    drop.title = 'Delete chat';
+    drop.textContent = '×';
+    drop.addEventListener('click', (event) => {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'deleteChat', id: chat.id });
+    });
+
+    row.append(text, drop);
+    row.addEventListener('click', () => {
+      vscode.postMessage({ type: 'session', id: chat.id });
+    });
+
+    chats.append(row);
+  }
+}
+
+function groupOf(at) {
+  const days = daysAgo(at);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return 'Previous 7 days';
+  if (days < 30) return 'Previous 30 days';
+  return 'Older';
+}
+
+function daysAgo(at) {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.ceil((midnight.getTime() - at) / 86400000));
+}
+
+function ago(at) {
+  const minutes = Math.floor((Date.now() - at) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function setBusy(value) {

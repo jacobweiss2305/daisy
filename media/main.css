@@ -516,3 +516,124 @@ button.primary:hover { background: var(--vscode-button-hoverBackground); }
 
 #settings h2 { margin-top: 14px; }
 #settings > h2:first-child { margin-top: 0; }
+
+button.title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px 3px 4px;
+  color: var(--vscode-foreground);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.title:hover { background: var(--sunken); }
+
+button.title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.title svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--quiet);
+}
+
+#chats {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+}
+
+#chats h2 { margin: 0 0 10px; font-size: 1.05em; font-weight: 600; }
+#chats > p { margin: 0; font-size: 0.9em; color: var(--quiet); }
+
+#chats .group {
+  margin: 14px 0 4px;
+  font-size: 0.74em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+#chats .group:first-of-type { margin-top: 0; }
+
+.chat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 8px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+
+.chat:hover { background: var(--sunken); }
+
+.chat.on {
+  background: var(--sunken);
+  border-left-color: var(--vscode-textLink-foreground);
+}
+
+.chat .text { flex: 1; min-width: 0; }
+
+.chat .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.94em;
+}
+
+.chat .meta { margin-top: 2px; font-size: 0.78em; color: var(--quiet); }
+
+.chat .drop {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  opacity: 0;
+  color: var(--quiet);
+  background: none;
+  border: none;
+  border-radius: 5px;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat:hover .drop { opacity: 1; }
+.chat .drop:hover { color: var(--vscode-errorForeground); background: var(--vscode-input-background); }
+
+.prompt-edit {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 8px 10px;
+  resize: vertical;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  outline: none;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.86em;
+  line-height: 1.5;
+}
+
+.prompt-edit:focus { border-color: var(--vscode-focusBorder); }
