@@ -339,23 +339,28 @@ test('ignores null bodies', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Round trip through the real gate parser, when this checkout sits next to
-// the zeroproof repo. Skipped on a standalone daisy clone.
+// Round trip through a real ingest parser, so the envelope is checked against
+// something that consumes it rather than a copy of our own assumptions.
+//
+// Point DAISY_INGEST_PARSER at a module exporting `extractRows(resourceSpans)`.
+// Unset, this is skipped, which is the normal case for a standalone checkout.
 // ---------------------------------------------------------------------------
 
-// argv[1] is this file when node --test runs it; import.meta is off-limits under the CJS tsconfig.
-const gatePath = path.join(path.dirname(process.argv[1] ?? '.'), '..', '..', 'zeroproof', 'backend', 'lambda', 'token-gate', 'ingest.js');
-// The gate parser loads the AWS SDK from its own node_modules; skip on a bare checkout.
-const roundTrip =
-  existsSync(gatePath) && existsSync(path.join(path.dirname(gatePath), 'node_modules')) ? test : test.skip;
+const parserPath = process.env['DAISY_INGEST_PARSER']?.trim() ?? '';
+// A parser usually loads its own dependencies, so require them beside it.
+const usable =
+  parserPath.length > 0 &&
+  existsSync(parserPath) &&
+  existsSync(path.join(path.dirname(parserPath), 'node_modules'));
+const roundTrip = usable ? test : test.skip;
 
-roundTrip('a turn body flattens to one rollout row in the gate parser', async () => {
-  const mod = (await import(pathToFileURL(gatePath).href)) as {
+roundTrip('a turn body flattens to one rollout row in the ingest parser', async () => {
+  const mod = (await import(pathToFileURL(parserPath).href)) as {
     extractRows?: (resourceSpans: unknown) => Record<string, unknown>[];
     default?: { extractRows?: (resourceSpans: unknown) => Record<string, unknown>[] };
   };
   const extractRows = mod.extractRows ?? mod.default?.extractRows;
-  if (typeof extractRows !== 'function') throw new Error('gate parser import failed');
+  if (typeof extractRows !== 'function') throw new Error('ingest parser import failed');
 
   const body = oneLlmTrace().body(RESOURCE) as OtlpBody;
   const rows = extractRows(body.resourceSpans);

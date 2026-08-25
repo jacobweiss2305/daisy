@@ -206,8 +206,9 @@ delta reassembly, splitting reasoning out of the token stream, cold-start retry,
 the path guard, mention expansion, chat storage and pruning, the markdown
 renderer, and the telemetry envelope.
 
-One test skips unless a sibling repo is checked out beside this one, where it
-round-trips a trace through a real ingest parser instead of a copy of it.
+One test is skipped unless `DAISY_INGEST_PARSER` points at a module exporting
+`extractRows(resourceSpans)`. Given one, it round-trips a trace through a real
+consumer of the envelope rather than a copy of our own assumptions.
 
 The renderer is browser code, so its tests load `media/markdown.js` through a
 small DOM shim and exercise the shipped file rather than a copy.
