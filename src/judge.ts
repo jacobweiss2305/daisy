@@ -122,26 +122,37 @@ export interface Verdict {
   max: number | null;
   summary: string | null;
   issues: string[];
-  /** The judge's final text, when it carries no parseable verdict. */
+  /** True when a JSON verdict object was found in the final text. */
+  parsed: boolean;
+  /** The judge's final text, kept so an unparsed verdict can be filed. */
   raw: string;
 }
 
 /** The JSON object the judge prompt asks for, however much prose surrounds it. */
 export function parseVerdict(text: string): Verdict {
-  const out: Verdict = { score: null, passAt: null, max: null, summary: null, issues: [], raw: text.trim() };
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) return out;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    return out;
+  const out: Verdict = { score: null, passAt: null, max: null, summary: null, issues: [], parsed: false, raw: text.trim() };
+  // The verdict is what the judge ends with, so read backwards from the last
+  // brace: prose or code earlier in the reply may contain braces of its own,
+  // and a truncated object leaves its tail, not its head, unpaired.
+  for (let end = text.lastIndexOf('}'); end >= 0; end = text.lastIndexOf('}', end - 1)) {
+    let candidate: unknown;
+    try {
+      candidate = JSON.parse(text.slice(text.lastIndexOf('{', end), end + 1));
+    } catch {
+      continue;
+    }
+    if (typeof candidate !== 'object' || candidate === null) continue;
+    const c = candidate as Record<string, unknown>;
+    if (![ 'score', 'pass_at', 'passAt', 'summary', 'issues', 'max' ].some((k) => c[k] !== undefined)) continue;
+    out.parsed = true;
+    return fill(out, candidate);
   }
-  if (typeof parsed !== 'object' || parsed === null) return out;
+  return out;
+}
 
+function fill(out: Verdict, parsed: unknown): Verdict {
   const o = parsed as Record<string, unknown>;
+
   const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   out.score = num(o.score);
   out.passAt = num(o.pass_at) ?? num(o.passAt);
@@ -193,21 +204,34 @@ export async function judgeTurn(turn: TurnRecord, deps: JudgeDeps): Promise<Verd
   const messages: Message[] = [{ role: 'user', content: transcript(turn, settings.maxTranscriptBytes) }];
   let finalText = '';
 
-  for await (const event of run(messages, {
-    cfg: deps.cfg,
-    root: deps.root,
-    system: settings.systemPrompt,
-    limits: deps.limits,
-    signal: new AbortController().signal,
-    maxLoops: settings.maxLoops,
-  })) {
-    if (event.kind === 'text') finalText += event.text;
-    else if (event.kind === 'tool') finalText = ''; // a new round starts; the verdict is the last one
+  try {
+    for await (const event of run(messages, {
+      cfg: deps.cfg,
+      root: deps.root,
+      system: settings.systemPrompt,
+      limits: deps.limits,
+      signal: new AbortController().signal,
+      maxLoops: settings.maxLoops,
+    })) {
+      if (event.kind === 'text') finalText += event.text;
+      else if (event.kind === 'tool') finalText = ''; // a new round starts; the verdict is the last one
+    }
+  } catch (e) {
+    finalText = `judge failed: ${(e as Error).message}`;
   }
 
   const verdict = parseVerdict(finalText);
-  const body = scoresBody(turn.traceId, verdict, settings.source);
-  if (!body) return verdict;
+  let body = scoresBody(turn.traceId, verdict, settings.source);
+  if (!body) {
+    // Nothing to file as a score, but the review happened: keep what the
+    // judge actually said so a bad verdict is readable, not silent.
+    body = {
+      traceId: turn.traceId,
+      // The store clips a label to 200 chars, and the verdict is what the
+      // judge ends with, so keep the tail of its reply.
+      scores: [{ name: 'judge.raw', label: (verdict.raw || '(empty verdict)').slice(-190), source: settings.source }],
+    };
+  }
 
   const sleep = deps.sleepImpl ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const fetchImpl = deps.fetchImpl ?? fetch;

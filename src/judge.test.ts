@@ -73,6 +73,11 @@ test('parseVerdict: bare json, json in prose, and nothing', () => {
   const bad = parseVerdict('I think it is fine.');
   assert.equal(bad.score, null);
   assert.equal(bad.raw, 'I think it is fine.');
+  assert.equal(bad.parsed, false);
+
+  // Prose that happens to contain braces is not a verdict.
+  const curly = parseVerdict('edited the file at {index 5}, done.');
+  assert.equal(curly.parsed, false);
 });
 
 test('scoresBody: named measurements against the trace id, null when empty', () => {
@@ -188,6 +193,85 @@ test('judgeTurn: reviews the turn with tools and posts the verdict against the t
     ],
   });
   assert.equal(scoresPosts[0]!.headers['x-api-key'], 'k');
+});
+
+test('judgeTurn: an unparseable verdict is filed as judge.raw instead of dropped', async () => {
+  const root = scratchRoot();
+  const posted: { status: number; body: unknown }[] = [];
+
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    const u = String(url);
+    if (u.endsWith('/chat/completions')) return sseResponse(textFrame('It looks fine to me, but I will not emit JSON.'));
+    if (u.endsWith('/scores')) {
+      posted.push({ status: 200, body: JSON.parse(String(init?.body)) });
+      return new Response('{}', { status: 200 });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const turn = {
+    chatId: 'c',
+    turnNumber: 1,
+    userText: 'do it',
+    messages: [{ role: 'assistant', content: 'ok' }] as Message[],
+    traceId: 'abc',
+    model: 'qwen',
+  };
+
+  const out = await judgeTurn(turn, {
+    cfg: { baseUrl: 'http://llm.test/v1', model: 'qwen', apiKey: '' },
+    root,
+    limits: DEFAULT_LIMITS,
+    settings: SETTINGS,
+    sleepImpl: async () => {},
+  });
+
+  assert.equal(out?.parsed, false);
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0]!.body, {
+    traceId: 'abc',
+    scores: [
+      { name: 'judge.raw', label: 'It looks fine to me, but I will not emit JSON.', source: 'daisy-judge' },
+    ],
+  });
+});
+
+test('judgeTurn: a judge whose model call fails is filed as judge.raw too', async () => {
+  const root = scratchRoot();
+  const posted: unknown[] = [];
+
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    const u = String(url);
+    if (u.endsWith('/chat/completions')) return new Response('503 Service Unavailable', { status: 503 });
+    if (u.endsWith('/scores')) {
+      posted.push(JSON.parse(String(init?.body)));
+      return new Response('{}', { status: 200 });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const turn = {
+    chatId: 'c',
+    turnNumber: 1,
+    userText: 'do it',
+    messages: [{ role: 'assistant', content: 'ok' }] as Message[],
+    traceId: 'abc',
+    model: 'qwen',
+  };
+
+  const out = await judgeTurn(turn, {
+    cfg: { baseUrl: 'http://llm.test/v1', model: 'qwen', apiKey: '' },
+    root,
+    limits: DEFAULT_LIMITS,
+    settings: { ...SETTINGS, maxLoops: 1, delayMs: 0 },
+    sleepImpl: async () => {},
+  });
+
+  assert.equal(out?.parsed, false);
+  assert.equal(posted.length, 1);
+  const body = posted[0] as { scores: { name: string; label: string }[] };
+  assert.equal(body.scores[0]!.name, 'judge.raw');
+  assert.ok(body.scores[0]!.label.startsWith('judge failed:'));
 });
 
 test('judgeTurn: maxLoops forces a final answer even for a looping judge', async () => {

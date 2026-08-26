@@ -237,6 +237,7 @@ export class ChatView implements vscode.WebviewViewProvider {
             .then((v) => {
               if (!v) return;
               const bits = [v.score != null ? `score ${v.score}` : '', v.summary].filter(Boolean);
+              if (!bits.length && !v.parsed) bits.push('unparseable verdict filed as judge.raw');
               try {
                 post({ type: 'status', text: `Judge: ${bits.join(', ') || 'no score in verdict'}` });
               } catch {
