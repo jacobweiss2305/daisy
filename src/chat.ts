@@ -6,6 +6,7 @@ import { Sessions, type Session, type Store } from './sessions.ts';
 import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
 import { OtelClient, TurnTrace, parseHeaders, resolveOtel, resourceFor, spanId } from './otel.ts';
 import { judgeTurn, resolveJudge, type JudgeSettings } from './judge.ts';
+import { VerdictQueue } from './verdict-queue.ts';
 import type { OtelConfig } from './otel.ts';
 
 type ToView =
@@ -66,14 +67,16 @@ export class ChatView implements vscode.WebviewViewProvider {
   private readonly ext: vscode.Uri;
   private readonly sessions: Sessions;
   private readonly otel: OtelClient;
+  private readonly verdictQueue: VerdictQueue;
   private session: Session;
   /** One run per chat, so chats work in parallel. */
   private readonly runs = new Map<string, AbortController>();
 
-  constructor(ext: vscode.Uri, store: Store, otel: OtelClient) {
+  constructor(ext: vscode.Uri, store: Store, otel: OtelClient, verdictQueue: VerdictQueue) {
     this.ext = ext;
     this.sessions = new Sessions(store, settings().sessionsKept);
     this.otel = otel;
+    this.verdictQueue = verdictQueue;
     this.session = this.sessions.active();
   }
 
@@ -233,7 +236,7 @@ export class ChatView implements vscode.WebviewViewProvider {
             traceId: trace.traceId,
             model: cfg.model,
           };
-          void judgeTurn(record, { cfg, root, limits, settings: judge })
+          void judgeTurn(record, { cfg, root, limits, settings: judge, queue: this.verdictQueue })
             .then((v) => {
               if (!v) return;
               const bits = [v.score != null ? `score ${v.score}` : '', v.summary].filter(Boolean);

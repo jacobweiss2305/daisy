@@ -2,6 +2,8 @@ import { run } from './agent.ts';
 import { parseHeaders } from './otel.ts';
 import type { LlmConfig, Message } from './llm.ts';
 import type { Limits } from './tools.ts';
+import { sendVerdict, type SendReport } from './transport.ts';
+import type { VerdictQueue } from './verdict-queue.ts';
 
 /**
  * The per-turn judge.
@@ -184,18 +186,32 @@ export interface JudgeDeps {
   limits: Limits;
   /** Resolved settings. */
   settings: JudgeSettings;
+  /**
+   * Where a verdict that the store has not taken yet goes to wait. When one
+   * is given, the verdict is remembered BEFORE its first send, so a VS Code
+   * reload in the middle of the judge no longer loses it: the next
+   * activation sends it again. Optional so the function stays usable (and
+   * testable) without a store.
+   */
+  queue?: VerdictQueue;
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
 }
 
 const SEND_TIMEOUT_MS = 10_000;
-/** How long to keep re-posting while the turn's own trace is still landing. */
+/** How long to keep re-posting in this session while the trace is still landing. */
 const RETRY_DELAYS_MS = [3_000, 9_000];
 
 /**
  * Review one turn: run the judge, parse its verdict, post it against the
  * turn's trace id. Delivery problems never throw; by the time this runs the
  * chat is over and the outcome is the judge's own business.
+ *
+ * When a queue is supplied, the verdict is written to it before the first
+ * send. The in-session retries are the fast path for the usual case (the
+ * trace lands a few seconds late). While the store still answers "not yet",
+ * the queue keeps the entry for the next flush: the slow path for the case
+ * that used to drop the verdict (a reload, a dead endpoint, a closed window).
  */
 export async function judgeTurn(turn: TurnRecord, deps: JudgeDeps): Promise<Verdict | null> {
   const { settings } = deps;
@@ -234,46 +250,58 @@ export async function judgeTurn(turn: TurnRecord, deps: JudgeDeps): Promise<Verd
   }
 
   const sleep = deps.sleepImpl ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const fetchImpl = deps.fetchImpl ?? fetch;
-  const url = `${settings.endpoint}/scores`;
   const text = JSON.stringify(body);
+
+  // Remember before sending: if this process dies between the two lines, the
+  // verdict is still on disk and the next activation finishes the job.
+  deps.queue?.add({
+    traceId: turn.traceId,
+    body: text,
+    enqueuedAt: Date.now(),
+    attempts: 0,
+    lastAttemptAt: null,
+  });
 
   await sleep(settings.delayMs);
 
-  for (let attempt = 0; ; attempt += 1) {
-    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1] ?? 3000);
+  const report = await sendVerdict(
+    {
+      endpoint: settings.endpoint,
+      headers: settings.headers,
+      timeoutMs: SEND_TIMEOUT_MS,
+      fetchImpl: deps.fetchImpl,
+      sleepImpl: sleep,
+    },
+    turn.traceId,
+    text,
+    RETRY_DELAYS_MS.length + 1,
+    RETRY_DELAYS_MS,
+  );
 
-    let status: number;
-    let resp = '';
-    try {
-      const res = await fetchImpl(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...settings.headers },
-        body: text,
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      });
-      status = res.status;
-      resp = await res.text();
-    } catch {
-      status = 0;
-    }
+  settleQueue(deps.queue, turn.traceId, text, report);
+  return verdict;
+}
 
-    if (status >= 200 && status < 300 && status !== 207) return verdict;
-    // 207 is partial success. If the turn's trace has not landed yet it is
-    // listed as unknown and the next try will apply; anything else 207 says
-    // is a reason the measurement will never be accepted.
-    if (status === 207) {
-      let unknown: unknown;
-      try {
-        unknown = (JSON.parse(resp) as { unknown?: unknown }).unknown;
-      } catch {
-        unknown = undefined;
-      }
-      if (!Array.isArray(unknown) || !unknown.includes(turn.traceId)) return verdict;
-    }
-    // 4xx (but not 408/429) will not be fixed by waiting; 5xx and a dropped
-    // connection may pass next time.
-    const permanent = status >= 400 && status < 500 && status !== 408 && status !== 429;
-    if (permanent || attempt >= RETRY_DELAYS_MS.length) return verdict;
+/**
+ * Settle the queue entry a live send just made:
+ *
+ *   delivered  the store has it; nothing left to do.
+ *   refused    the store will keep refusing; keep it out of the queue so
+ *              a startup flush does not spend its whole budget on one
+ *              bad endpoint, and let the activation notice the refusals.
+ *   pending    the store may still take it: keep the entry, count what the
+ *              live path already tried, and let the backoff run from now.
+ */
+function settleQueue(
+  queue: VerdictQueue | undefined,
+  traceId: string,
+  body: string,
+  report: SendReport,
+): void {
+  if (!queue) return;
+  if (report.outcome === "pending") {
+    queue.add({ traceId, body, enqueuedAt: Date.now(), attempts: report.attempts, lastAttemptAt: Date.now() });
+  } else {
+    queue.remove(traceId);
   }
 }
