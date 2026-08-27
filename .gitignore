@@ -1,6 +1,1 @@
-node_modules/
-dist/
-*.vsix
-__pycache__/
-.uilab/
-"_*"  
+node_modules/; echo dist/; echo *.vsix; echo __pycache__/; echo .uilab/; echo _*
