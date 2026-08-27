@@ -1,7 +1,8 @@
 import { run } from './agent.ts';
-import { parseHeaders } from './otel.ts';
+import { OtelClient, recordOn, parseHeaders } from './otel.ts';
 import type { LlmConfig, Message } from './llm.ts';
 import type { Limits } from './tools.ts';
+import { describe, MAX_ISSUES, MAX_JUDGE_METRICS, type Outcome } from './metrics.ts';
 import { sendVerdict, type SendReport } from './transport.ts';
 import type { VerdictQueue } from './verdict-queue.ts';
 
@@ -22,6 +23,14 @@ import type { VerdictQueue } from './verdict-queue.ts';
  * stored trace of the turn. Nothing is sent unless judging is enabled and an
  * endpoint is set, and a failed send never affects the chat, which is over
  * by the time the judge runs.
+ *
+ * Every measurement travels with a `description`, the tooltip the platform
+ * shows beside the column's name. A name is not an explanation: `scope` is
+ * obvious to whoever wrote the judge and opaque to everybody else three
+ * weeks later. The fixed measurements carry static words, and the judge
+ * supplies the words for the metrics it invents. There is no registration
+ * step: the most recent wording wins, so correcting one is just the next
+ * verdict.
  */
 
 export interface JudgeSettings {
@@ -30,7 +39,7 @@ export interface JudgeSettings {
   endpoint: string;
   headers: Record<string, string>;
   systemPrompt: string;
-  /** Most tool rounds the judge may run before it is forced to a verdict. */
+  /** Most tool rounds the judge may run before it is forced to a verdict. 0 is no limit. */
   maxLoops: number;
   /** Largest turn transcript handed to the judge. */
   maxTranscriptBytes: number;
@@ -48,7 +57,17 @@ export const DEFAULT_JUDGE_PROMPT = [
   'You must not modify the workspace: no writes, deletes, or commands that change anything.',
   'Judge only what the user asked for in that turn, not the state of the repo before it.',
   'End your reply with one JSON object and nothing after it:',
-  '{"score": <0..1>, "pass_at": <0..1, the bar for good enough, default 0.7>, "summary": "<one or two sentences>", "issues": ["<what is wrong>"]}',
+  '{"score": <0..1>, "pass_at": <0..1, the bar for good enough, default 0.7>, "summary": "<one or two sentences>", "issues": ["<what is wrong>"],',
+  ' "metrics": {"correctness": <0..1>, "completeness": <0..1>, "verification": <0..1>, "scope": <0..1>}}',
+  'score is the overall verdict. The metrics are what it is made of, each 0..1:',
+  'correctness, does the work do what it claims; completeness, was everything asked for delivered;',
+  'verification, did the agent check its own work with the tools rather than assert it;',
+  'scope, did it change only what the turn called for.',
+  'Score all four every time. List at most 4 issues, worst first.',
+  'Add up to 5 of your own named metrics when a turn calls for something these four miss,',
+  'and for each one you add, put a one-sentence "metric_descriptions": {"<name>": "<what it measures>"}',
+  'entry: the description is shown beside the metric to whoever reads the chart later, and it should',
+  'make sense to someone who has never seen this judge run.',
 ].join('\n');
 
 /**
@@ -124,6 +143,10 @@ export interface Verdict {
   max: number | null;
   summary: string | null;
   issues: string[];
+  /** The dimensions behind the score. The judge names them, so nothing here knows them ahead of time. */
+  metrics: Record<string, number>;
+  /** The judge's own words on what each custom metric measures, beside its name in the store. */
+  metricDescriptions: Record<string, string>;
   /** True when a JSON verdict object was found in the final text. */
   parsed: boolean;
   /** The judge's final text, kept so an unparsed verdict can be filed. */
@@ -132,22 +155,41 @@ export interface Verdict {
 
 /** The JSON object the judge prompt asks for, however much prose surrounds it. */
 export function parseVerdict(text: string): Verdict {
-  const out: Verdict = { score: null, passAt: null, max: null, summary: null, issues: [], parsed: false, raw: text.trim() };
+  const out: Verdict = {
+    score: null,
+    passAt: null,
+    max: null,
+    summary: null,
+    issues: [],
+    metrics: {},
+    metricDescriptions: {},
+    parsed: false,
+    raw: text.trim(),
+  };
   // The verdict is what the judge ends with, so read backwards from the last
   // brace: prose or code earlier in the reply may contain braces of its own,
   // and a truncated object leaves its tail, not its head, unpaired.
   for (let end = text.lastIndexOf('}'); end >= 0; end = text.lastIndexOf('}', end - 1)) {
-    let candidate: unknown;
-    try {
-      candidate = JSON.parse(text.slice(text.lastIndexOf('{', end), end + 1));
-    } catch {
-      continue;
+    // Widest first. The verdict holds nested objects now, so the nearest brace
+    // before `end` is one of theirs; only the outermost slice is the verdict.
+    for (let start = text.indexOf('{'); start >= 0 && start < end; start = text.indexOf('{', start + 1)) {
+      let candidate: unknown;
+      try {
+        candidate = JSON.parse(text.slice(start, end + 1));
+      } catch {
+        continue;
+      }
+      if (typeof candidate !== 'object' || candidate === null) continue;
+      const c = candidate as Record<string, unknown>;
+      if (
+        ![ 'score', 'pass_at', 'passAt', 'summary', 'issues', 'max', 'metrics', 'metric_descriptions' ].some(
+          (k) => c[k] !== undefined,
+        )
+      )
+        continue;
+      out.parsed = true;
+      return fill(out, candidate);
     }
-    if (typeof candidate !== 'object' || candidate === null) continue;
-    const c = candidate as Record<string, unknown>;
-    if (![ 'score', 'pass_at', 'passAt', 'summary', 'issues', 'max' ].some((k) => c[k] !== undefined)) continue;
-    out.parsed = true;
-    return fill(out, candidate);
   }
   return out;
 }
@@ -160,22 +202,96 @@ function fill(out: Verdict, parsed: unknown): Verdict {
   out.passAt = num(o.pass_at) ?? num(o.passAt);
   out.max = num(o.max);
   out.summary = typeof o.summary === 'string' && o.summary.trim() ? o.summary.trim() : null;
-  if (Array.isArray(o.issues)) out.issues = o.issues.map((x) => String(x)).filter(Boolean).slice(0, 8);
+  if (Array.isArray(o.issues))
+    out.issues = o.issues.map((x) => String(x)).filter(Boolean).slice(0, MAX_ISSUES);
+  out.metrics = metricsOf(o.metrics);
+  out.metricDescriptions = metricDescriptionsOf(o.metric_descriptions, out.metrics);
   return out;
+}
+
+/**
+ * The judge's share of the per-trace name cap. The trace already spends names
+ * on behavioural measurements before the verdict is posted, and the store
+ * merges the two sets and refuses the whole POST past 32, so the split lives in
+ * metrics.ts where both sides can see it.
+ */
+const MAX_METRICS = MAX_JUDGE_METRICS;
+/** Names the fixed measurements already own; a metric may not overwrite them. */
+const TAKEN = (name: string): boolean => name === 'score' || name === 'summary' || name.startsWith('issue.');
+
+/**
+ * Whatever the judge decided to measure, keyed the way the store keys columns.
+ * Names are normalised here rather than trusted, since one bad key would
+ * otherwise land as its own column forever.
+ */
+function metricsOf(raw: unknown): Record<string, number> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (Object.keys(out).length >= MAX_METRICS) break;
+    const name = key.trim().replace(/[^\w.-]/g, '_').slice(0, 64);
+    const n = Number(value);
+    if (!name || TAKEN(name) || !Number.isFinite(n)) continue;
+    out[name] = n;
+  }
+  return out;
+}
+
+/**
+ * The judge's own words on what a metric it invented measures. Aligned to
+ * `metricsOf` the same way — same normalisation, same cap, same reserved
+ * names — so a description can never land under a column the number did not.
+ */
+function metricDescriptionsOf(raw: unknown, metrics: Record<string, number>): Record<string, string> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const name = key.trim().replace(/[^\w.-]/g, '_').slice(0, 64);
+    // Only a metric that survived gets words, and only the first spelling of a
+    // name does: two keys that normalise the same would otherwise let the
+    // sloppier one overwrite the description of the metric that was kept.
+    if (!(name in metrics) || name in out || typeof value !== 'string') continue;
+    const words = value.trim().slice(0, 280);
+    if (words) out[name] = words;
+  }
+  return out;
+}
+
+/** The fallback tooltip for a custom metric the judge did not describe. */
+const METRIC_FALLBACK = 'A dimension the judge measured on this turn, 0 to 1.';
+
+/**
+ * The tooltip for one measurement.
+ *
+ * A name the catalogue defines wins over anything the judge says about it: the
+ * prompt in this file defines those dimensions, so their wording should read
+ * the same next month rather than drifting each time the model rephrases
+ * itself. The judge only speaks for the metrics it invented, and neither path
+ * leaves a column without a tooltip.
+ */
+function tooltip(name: string, fromJudge: Record<string, string>): string {
+  return describe(name) ?? fromJudge[name] ?? METRIC_FALLBACK;
 }
 
 /** The measurement batch for one verdict. Null when the verdict carries nothing to record. */
 export function scoresBody(traceId: string, v: Verdict, source: string): Record<string, unknown> | null {
   const scores: Record<string, unknown>[] = [];
+  const push = (name: string, rest: Record<string, unknown>): void => {
+    scores.push({ name, source, description: tooltip(name, v.metricDescriptions), ...rest });
+  };
 
   if (v.score != null) {
-    const s: Record<string, unknown> = { name: 'score', value: v.score, source };
-    if (v.passAt != null) s.pass_at = v.passAt;
-    if (v.max != null) s.max = v.max;
-    scores.push(s);
+    push('score', {
+      value: v.score,
+      ...(v.passAt != null ? { pass_at: v.passAt } : {}),
+      ...(v.max != null ? { max: v.max } : {}),
+    });
   }
-  if (v.summary) scores.push({ name: 'summary', label: v.summary.slice(0, 200), source });
-  v.issues.forEach((issue, i) => scores.push({ name: `issue.${i + 1}`, label: issue.slice(0, 200), source }));
+  if (v.summary) push('summary', { label: v.summary.slice(0, 200) });
+  v.issues.forEach((issue, i) => push(`issue.${i + 1}`, { label: issue.slice(0, 200) }));
+  for (const [name, value] of Object.entries(v.metrics)) push(name, { value });
 
   return scores.length ? { traceId, scores } : null;
 }
@@ -194,6 +310,21 @@ export interface JudgeDeps {
    * testable) without a store.
    */
   queue?: VerdictQueue;
+  /**
+   * How long to keep retrying a cold endpoint, as the chat agent has it.
+   * Without it the judge takes the five-minute default, which is the chat
+   * agent's bargain and not the judge's: nobody is waiting on a review, so a
+   * scale-to-zero endpoint that is down stalls every turn's judge for five
+   * minutes rather than failing and leaving a `judge.raw` behind.
+   */
+  warmupMs?: number | undefined;
+  /**
+   * Where the judge's own run is recorded. It gets its own trace rather than
+   * spans on the turn's: the store folds duration, tokens and tool counts into
+   * one summary per trace, so sharing an id would bill the judge's work to the
+   * agent and put the judge's tool calls in the agent's training row.
+   */
+  otel?: OtelClient;
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
 }
@@ -217,8 +348,22 @@ export async function judgeTurn(turn: TurnRecord, deps: JudgeDeps): Promise<Verd
   const { settings } = deps;
   if (!settings.enabled) return null;
 
-  const messages: Message[] = [{ role: 'user', content: transcript(turn, settings.maxTranscriptBytes) }];
+  const review = transcript(turn, settings.maxTranscriptBytes);
+  const messages: Message[] = [{ role: 'user', content: review }];
   let finalText = '';
+  let outcome: Outcome = 'complete';
+
+  const trace =
+    deps.otel?.trace(
+      {
+        turnId: `${turn.chatId}:${turn.turnNumber}:judge`,
+        inputText: review,
+        sessionId: turn.chatId,
+        agent: 'daisy-judge',
+        attributes: { 'daisy.reviews_trace_id': turn.traceId },
+      },
+      deps.root,
+    ) ?? null;
 
   try {
     for await (const event of run(messages, {
@@ -226,15 +371,23 @@ export async function judgeTurn(turn: TurnRecord, deps: JudgeDeps): Promise<Verd
       root: deps.root,
       system: settings.systemPrompt,
       limits: deps.limits,
+      warmupMs: deps.warmupMs,
       signal: new AbortController().signal,
-      maxLoops: settings.maxLoops,
+      // Undefined keeps tools on the table for good, the way the chat agent runs.
+      maxLoops: settings.maxLoops > 0 ? settings.maxLoops : undefined,
+      onObserve: recordOn(trace),
     })) {
       if (event.kind === 'text') finalText += event.text;
       else if (event.kind === 'tool') finalText = ''; // a new round starts; the verdict is the last one
     }
   } catch (e) {
+    outcome = 'error';
     finalText = `judge failed: ${(e as Error).message}`;
   }
+
+  // Sent whatever the verdict turns out to be: a judge that failed or wandered
+  // is the run worth looking at.
+  deps.otel?.send(trace, deps.root, outcome);
 
   const verdict = parseVerdict(finalText);
   let body = scoresBody(turn.traceId, verdict, settings.source);
@@ -245,7 +398,14 @@ export async function judgeTurn(turn: TurnRecord, deps: JudgeDeps): Promise<Verd
       traceId: turn.traceId,
       // The store clips a label to 200 chars, and the verdict is what the
       // judge ends with, so keep the tail of its reply.
-      scores: [{ name: 'judge.raw', label: (verdict.raw || '(empty verdict)').slice(-190), source: settings.source }],
+      scores: [
+        {
+          name: 'judge.raw',
+          label: (verdict.raw || '(empty verdict)').slice(-190),
+          source: settings.source,
+          description: tooltip('judge.raw', {}),
+        },
+      ],
     };
   }
 

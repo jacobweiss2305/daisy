@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
       endpoint: c.get('endpoint', ''),
       headers: c.get('headers', {}),
       systemPrompt: c.get('systemPrompt', ''),
-      maxLoops: c.get('maxLoops', 12),
+      maxLoops: c.get('maxLoops', 0),
       maxTranscriptBytes: c.get('maxTranscriptBytes', 128 * 1024),
       source: c.get('source', 'daisy-judge'),
       delayMs: c.get('delayMs', 5000),

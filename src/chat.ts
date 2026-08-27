@@ -4,7 +4,8 @@ import { run, type AgentDeps, type AgentEvent } from './agent.ts';
 import { listAll, type Endpoint, type LlmConfig, type ModelRef } from './llm.ts';
 import { Sessions, type Session, type Store } from './sessions.ts';
 import { DEFAULT_LIMITS, expandMentions, type Limits } from './tools.ts';
-import { OtelClient, TurnTrace, parseHeaders, resolveOtel, resourceFor, spanId } from './otel.ts';
+import { OtelClient, parseHeaders, recordOn, resolveOtel } from './otel.ts';
+import type { Outcome } from './metrics.ts';
 import { judgeTurn, resolveJudge, type JudgeSettings } from './judge.ts';
 import { VerdictQueue } from './verdict-queue.ts';
 import type { OtelConfig } from './otel.ts';
@@ -192,9 +193,17 @@ export class ChatView implements vscode.WebviewViewProvider {
     const telemetry = otelConfig();
     this.otel.updateConfig(telemetry);
     const turnNumber = chat.messages.filter((m) => m.role === 'user').length;
-    const trace = telemetry.enabled
-      ? new TurnTrace(`${chat.id}:${turnNumber}`, userContent, telemetry.maxAttrBytes, chat.id)
-      : undefined;
+    const trace = this.otel.trace(
+      {
+        turnId: `${chat.id}:${turnNumber}`,
+        inputText: userContent,
+        sessionId: chat.id,
+      },
+      root,
+    );
+
+    // Only this scope can tell the three endings apart, so it is what names them.
+    let outcome: Outcome = 'complete';
 
     try {
       const deps: AgentDeps = {
@@ -206,21 +215,18 @@ export class ChatView implements vscode.WebviewViewProvider {
         signal: controller.signal,
         onWait: (seconds: number) =>
           post({ type: 'status', text: `Waiting for ${cfg.baseUrl} to start, ${seconds}s.` }),
-        onObserve: (e) => {
-          if (!trace) return;
-          if (e.kind === 'llm') trace.llm(spanId(), e.observation);
-          else trace.tool(spanId(), e.observation);
-        },
+        onObserve: recordOn(trace),
       };
       for await (const event of run(chat.messages, deps)) post(project(event));
     } catch (e) {
+      outcome = controller.signal.aborted ? 'cancelled' : 'error';
       const reason = controller.signal.aborted ? 'Cancelled.' : (e as unknown as Error).message;
       post({ type: 'status', text: reason });
     } finally {
       this.runs.delete(chat.id);
       this.sessions.save(chat);
       this.sendSessions(webview);
-      if (trace) this.otel.submit(trace.body(resourceFor(telemetry, root)));
+      this.otel.send(trace, root, outcome);
 
       // The verdict is scored against the turn's trace, so there must be one:
       // telemetry has to be on. The judge runs on its own; by the time it runs
@@ -236,10 +242,19 @@ export class ChatView implements vscode.WebviewViewProvider {
             traceId: trace.traceId,
             model: cfg.model,
           };
-          void judgeTurn(record, { cfg, root, limits, settings: judge, queue: this.verdictQueue })
+          void judgeTurn(record, {
+            cfg,
+            root,
+            limits,
+            warmupMs,
+            settings: judge,
+            queue: this.verdictQueue,
+            otel: this.otel,
+          })
             .then((v) => {
               if (!v) return;
-              const bits = [v.score != null ? `score ${v.score}` : '', v.summary].filter(Boolean);
+              const named = Object.entries(v.metrics).map(([k, n]) => `${k} ${n}`);
+              const bits = [v.score != null ? `score ${v.score}` : '', ...named, v.summary].filter(Boolean);
               if (!bits.length && !v.parsed) bits.push('unparseable verdict filed as judge.raw');
               try {
                 post({ type: 'status', text: `Judge: ${bits.join(', ') || 'no score in verdict'}` });
@@ -439,7 +454,7 @@ function judgeConfig(): JudgeSettings {
     endpoint: c.get('endpoint', ''),
     headers: c.get('headers', {}),
     systemPrompt: c.get('systemPrompt', ''),
-    maxLoops: c.get('maxLoops', 12),
+    maxLoops: c.get('maxLoops', 0),
     maxTranscriptBytes: c.get('maxTranscriptBytes', 128 * 1024),
     source: c.get('source', 'daisy-judge'),
     delayMs: c.get('delayMs', 5000),

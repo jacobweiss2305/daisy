@@ -130,3 +130,17 @@ test('leaves pipes alone when no separator row follows', () => {
 test('does not treat a rule as a table separator', () => {
   assert.equal(md('---'), 'hr[]');
 });
+
+test('renders a row that never gets its separator as text', () => {
+  assert.equal(md('| File | What |'), 'p[| File | What |]');
+});
+
+/**
+ * The webview re-renders on every frame while a reply streams, so the parser
+ * is handed every prefix of the document, not just the finished one. A prefix
+ * that ends mid-block used to leave `at` where it was and spin.
+ */
+test('terminates on every prefix of a document', () => {
+  const doc = '# Title\n\nprose\n\n| File | What |\n|---|---|\n| a | b |\n\n- item\n- item\n\n> quote\n\n```js\nx\n```\n';
+  for (let cut = 1; cut <= doc.length; cut += 1) md(doc.slice(0, cut));
+});

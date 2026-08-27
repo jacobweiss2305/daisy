@@ -135,7 +135,7 @@ test('substitutes the workspace into resource attributes', () => {
 });
 
 function oneLlmTrace(): TurnTrace {
-  const trace = new TurnTrace('chat-1:1', 'fix the login bug', 32768);
+  const trace = new TurnTrace({ turnId: 'chat-1:1', inputText: 'fix the login bug', maxAttr: 32768 });
   // After the root span's start, so the spans nest in time.
   const t0 = Date.now();
   trace.llm(spanId(), {
@@ -197,15 +197,94 @@ test('builds one trace per turn: agent root, llm, and tool spans', () => {
 });
 
 test('the root span carries the chat as a conversation and the turn as its own id', () => {
-  const trace = new TurnTrace('chat-1:1', 'hi', 32768, 'chat-1');
+  const trace = new TurnTrace({ turnId: 'chat-1:1', inputText: 'hi', maxAttr: 32768, sessionId: 'chat-1' });
   const root = (trace.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
   const attrs = Object.fromEntries((root?.attributes ?? []).map((a) => [a.key, a.value]));
   assert.equal(attrs['gen_ai.conversation.id']?.stringValue, 'chat-1');
   assert.equal(attrs['daisy.turn_id']?.stringValue, 'chat-1:1');
 
-  const bare = new TurnTrace('c:1', 'hi', 32768);
+  const bare = new TurnTrace({ turnId: 'c:1', inputText: 'hi', maxAttr: 32768 });
   const bareRoot = (bare.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
   assert.ok(!(bareRoot?.attributes ?? []).some((a) => a.key === 'gen_ai.conversation.id'));
+});
+
+test('the root span carries the behavioural measurements and their tooltips', () => {
+  const trace = new TurnTrace({ turnId: 'c:1', inputText: 'hi', maxAttr: 32768 });
+  trace.tool(spanId(), {
+    name: 'write_file',
+    startedMs: 0,
+    durationMs: 1,
+    args: JSON.stringify({ path: 'a.ts', content: 'x' }),
+    output: '',
+    failed: false,
+  });
+
+  const root = (trace.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
+  const attrs = Object.fromEntries((root?.attributes ?? []).map((a) => [a.key, a.value]));
+  assert.equal(attrs['zeroproof.scores.fs.writes']?.doubleValue, 1);
+  assert.equal(attrs['zeroproof.scores.fs.read_before_write']?.doubleValue, 0);
+  assert.equal(attrs['zeroproof.scores.turn.failed']?.doubleValue, 0);
+
+  // The store drops a span measurement that is not a number, and shows a
+  // description only for a measurement that exists, so every one needs both.
+  for (const [key, value] of Object.entries(attrs)) {
+    if (!key.startsWith('zeroproof.scores.')) continue;
+    const name = key.slice('zeroproof.scores.'.length);
+    assert.equal(typeof value.doubleValue, 'number', `${name} is not a number`);
+    assert.ok(attrs[`zeroproof.describe.${name}`]?.stringValue, `${name} has no tooltip`);
+  }
+});
+
+test('a flag on the root span carries its evidence beside it', () => {
+  const trace = new TurnTrace({ turnId: 'c:1', inputText: 'fix the build', maxAttr: 32768 });
+  trace.tool(spanId(), {
+    name: 'run_command',
+    startedMs: 0,
+    durationMs: 1,
+    args: JSON.stringify({ command: 'rm -rf dist' }),
+    output: '',
+    failed: false,
+  });
+
+  const root = (trace.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
+  const attrs = Object.fromEntries((root?.attributes ?? []).map((a) => [a.key, a.value]));
+  assert.equal(attrs['zeroproof.scores.risk.destructive']?.doubleValue, 1);
+  assert.match(attrs['zeroproof.evidence.risk.destructive']?.stringValue ?? '', /rm -rf/);
+
+  // Evidence is not a measurement: it gets no describe attribute and costs no
+  // measurement name, which is why the receipts can be verbose.
+  assert.ok(!('zeroproof.describe.risk.destructive.evidence' in attrs));
+});
+
+test('the answer is read for claims the turn did not earn', () => {
+  const trace = new TurnTrace({ turnId: 'c:1', inputText: 'fix it', maxAttr: 32768 });
+  trace.llm(spanId(), {
+    model: 'qwen',
+    startedMs: 0,
+    durationMs: 1,
+    inputMessages: [],
+    outputText: 'All tests pass now.',
+    toolCalls: [],
+    status: 'ok',
+  });
+
+  const root = (trace.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
+  const attrs = Object.fromEntries((root?.attributes ?? []).map((a) => [a.key, a.value]));
+  assert.equal(attrs['zeroproof.scores.lie.tests_claimed']?.doubleValue, 1);
+  assert.match(attrs['zeroproof.evidence.lie.tests_claimed']?.stringValue ?? '', /no test command ran/);
+});
+
+test('a failed turn is an error on the run, not only on the span that threw', () => {
+  const ok = new TurnTrace({ turnId: 'c:1', inputText: 'hi', maxAttr: 32768 });
+  assert.equal((ok.body(RESOURCE) as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0]?.status.code, 1);
+
+  const failed = new TurnTrace({ turnId: 'c:2', inputText: 'hi', maxAttr: 32768 });
+  const root = (failed.body(RESOURCE, 'error') as OtlpBody).resourceSpans[0]?.scopeSpans[0]?.spans[0];
+  assert.equal(root?.status.code, 2);
+  assert.equal(
+    (root?.attributes ?? []).find((a) => a.key === 'zeroproof.scores.turn.failed')?.value.doubleValue,
+    1,
+  );
 });
 
 test('the body is only produced once', () => {
@@ -220,7 +299,7 @@ function spansOf(trace: TurnTrace, resource: Record<string, string> = RESOURCE):
 }
 
 test('clips oversized attribute values to the byte budget', () => {
-  const trace = new TurnTrace('c:1', 'hi', 1024);
+  const trace = new TurnTrace({ turnId: 'c:1', inputText: 'hi', maxAttr: 1024 });
   trace.tool(spanId(), {
     name: 'run_command',
     startedMs: 0,
@@ -239,7 +318,7 @@ test('clips oversized attribute values to the byte budget', () => {
 });
 
 test('a failed tool is recorded with an exception event', () => {
-  const trace = new TurnTrace('c:1', 'hi', 32768);
+  const trace = new TurnTrace({ turnId: 'c:1', inputText: 'hi', maxAttr: 32768 });
   trace.tool(spanId(), {
     name: 'run_command',
     startedMs: 0,
@@ -400,4 +479,56 @@ roundTrip('a turn body flattens to one rollout row in the ingest parser', async 
   assert.deepEqual(row['tool_trace'], [
     { tool: 'read_file', input: '{"path":"src/login.ts"}', output: 'const x = 1;' },
   ]);
+});
+
+test('a running turn streams its finished spans, and the root closes it', () => {
+  const posted: OtlpBody[] = [];
+  const client = new OtelClient({
+    config: resolveOtel(SETTINGS),
+    shouldSend: () => true,
+    fetchImpl: (async (_url: unknown, init?: RequestInit) => {
+      posted.push(JSON.parse(String(init?.body)) as OtlpBody);
+      return new Response('', { status: 200 });
+    }) as unknown as typeof fetch,
+  });
+
+  const trace = client.trace({ turnId: 'c:1', inputText: 'go' }, 'c:/work/proj');
+  assert.ok(trace);
+
+  const spansOf = (b: OtlpBody): OtlpSpan[] => b.resourceSpans[0]!.scopeSpans[0]!.spans;
+  const t0 = Date.now();
+
+  trace.tool(spanId(), {
+    name: 'read_file', args: '{}', output: 'x', failed: false, startedMs: t0, durationMs: 5,
+  });
+  client.flushLive();
+  assert.equal(posted.length, 1);
+  // Children go out parentless-at-the-top: the store infers a stand-in root and
+  // lets the real one supersede it when the turn ends.
+  assert.deepEqual(spansOf(posted[0]!).map((s) => s.name), ['execute_tool read_file']);
+
+  // Nothing new finished, so nothing is sent: a span must never travel twice.
+  client.flushLive();
+  assert.equal(posted.length, 1);
+
+  trace.tool(spanId(), {
+    name: 'run_command', args: '{}', output: 'ok', failed: false, startedMs: t0 + 10, durationMs: 5,
+  });
+  client.send(trace, 'c:/work/proj');
+  assert.equal(posted.length, 2);
+
+  // The closing batch carries the root and only the child that had not gone yet.
+  assert.deepEqual(spansOf(posted[1]!).map((s) => s.name), [
+    'invoke_agent daisy',
+    'execute_tool run_command',
+  ]);
+
+  // Every span exactly once across every batch, and one trace id throughout.
+  const all = posted.flatMap(spansOf);
+  assert.equal(new Set(all.map((s) => s.spanId)).size, all.length);
+  assert.ok(all.every((s) => s.traceId === trace.traceId));
+
+  // The turn is over, so it is no longer drained.
+  client.flushLive();
+  assert.equal(posted.length, 2);
 });

@@ -98,7 +98,10 @@ function renderMarkdown(source) {
       continue;
     }
 
-    const paragraph = [];
+    // Taken unconditionally: a line no block claimed must still be consumed,
+    // or a prefix that ends mid-block spins here forever.
+    const paragraph = [lines[at]];
+    at += 1;
     while (at < lines.length && lines[at].trim() && !blockStart(lines[at])) {
       paragraph.push(lines[at]);
       at += 1;

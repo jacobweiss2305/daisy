@@ -185,9 +185,9 @@
         },
         "daisy.judge.maxLoops": {
           "type": "integer",
-          "default": 12,
-          "minimum": 1,
-          "description": "Most tool rounds the judge may run before it is forced to give its verdict."
+          "default": 0,
+          "minimum": 0,
+          "description": "Most tool rounds the judge may run before it is forced to give its verdict. 0 lets it work until it is done, which is what the chat agent already does."
         },
         "daisy.judge.maxTranscriptBytes": {
           "type": "integer",
